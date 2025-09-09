@@ -1,0 +1,65 @@
+[project]
+name = "genericrag"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.7.0",
+    "colpali-engine>=0.3.12",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "qdrant-client>=1.6.0",
+    "python-multipart>=0.0.6",
+    "PyMuPDF>=1.23.0",
+    "Pillow>=10.0.0",
+    "openai>=1.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "gradio>=4.0.0",
+    "loguru>=0.7.0",
+    "pytest>=8.4.1",
+    "hf-xet>=1.1.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings",
+    "--color=yes",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "httpx>=0.24.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https//download.pytorch.org/whl/cu128"
+explicit = true
+
+[dependency-groups]
+test = [
+    "pytest-cov>=6.2.1",
+]
