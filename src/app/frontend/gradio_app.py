@@ -13,7 +13,7 @@ import httpx
 from PIL import Image
 from loguru import logger
 
-from app.settings import get_settings
+from src.app.settings import get_settings
 
 # Get settings
 settings = get_settings()

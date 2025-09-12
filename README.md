@@ -298,7 +298,7 @@ docker run -p 8000:8000 -p 7860:7860 generic-rag
 5. Set up proper file permissions for data directories
 
 
-## 📄 License
+## License
 
 This project is licensed under the AGPLv3 License - see the LICENSE file for details.
 

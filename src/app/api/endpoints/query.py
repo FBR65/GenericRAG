@@ -10,16 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from PIL import Image
 
-from app.api.dependencies import (
+from src.app.api.dependencies import (
     ColPaliModelDep,
     ColPaliProcessorDep,
     ImageStorageDep,
     QdrantClientDep,
     SettingsDep,
 )
-from app.models.schemas import QueryResponse, SearchResult
-from app.utils.colpali_utils import process_query
-from app.utils.qdrant_utils import search_with_retry, create_payload_filter
+from src.app.models.schemas import QueryResponse, SearchResult
+from src.app.utils.colpali_utils import process_query
+from src.app.utils.qdrant_utils import search_with_retry, create_payload_filter
 
 router = APIRouter()
 
@@ -27,14 +27,14 @@ router = APIRouter()
 @router.post("/query", response_model=QueryResponse)
 async def query_rag(
     query: str,
-    session_id: Optional[str] = None,
+    qdrant_client: QdrantClientDep,
+    colpali_model: ColPaliModelDep,
+    colpali_processor: ColPaliProcessorDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
     top_k: int = Query(5, ge=1, le=20),
     score_threshold: Optional[float] = Query(0.5, ge=0.0, le=1.0),
-    qdrant_client: QdrantClientDep = Depends(),
-    colpali_model: ColPaliModelDep = Depends(),
-    colpali_processor: ColPaliProcessorDep = Depends(),
-    image_storage: ImageStorageDep = Depends(),
-    settings: SettingsDep = Depends(),
+    session_id: Optional[str] = None,
 ) -> QueryResponse:
     """
     Query the RAG system
@@ -138,14 +138,14 @@ async def query_rag(
 @router.post("/query-stream")
 async def query_rag_stream(
     query: str,
-    session_id: Optional[str] = None,
+    qdrant_client: QdrantClientDep,
+    colpali_model: ColPaliModelDep,
+    colpali_processor: ColPaliProcessorDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
     top_k: int = Query(5, ge=1, le=20),
     score_threshold: Optional[float] = Query(0.5, ge=0.0, le=1.0),
-    qdrant_client: QdrantClientDep = Depends(),
-    colpali_model: ColPaliModelDep = Depends(),
-    colpali_processor: ColPaliProcessorDep = Depends(),
-    image_storage: ImageStorageDep = Depends(),
-    settings: SettingsDep = Depends(),
+    session_id: Optional[str] = None,
 ):
     """
     Query the RAG system with streaming response
@@ -261,9 +261,9 @@ async def query_rag_stream(
 
 @router.get("/sessions/{session_id}/results")
 async def get_session_results(
+    qdrant_client: QdrantClientDep,
+    settings: SettingsDep,
     session_id: str,
-    qdrant_client: QdrantClientDep = Depends(),
-    settings: SettingsDep = Depends(),
 ) -> List[SearchResult]:
     """
     Get all search results for a session
@@ -335,7 +335,7 @@ async def _generate_response_with_dspy(
     """
     try:
         # Get DSPy service from app state
-        from app.services.dspy_integration import DSPyIntegrationService
+        from src.app.services.dspy_integration import DSPyIntegrationService
         
         # This would be called from the main app context
         # For now, return a simple response
@@ -381,7 +381,7 @@ async def _generate_response_with_dspy_stream(
     """
     try:
         # Get DSPy service from app state
-        from app.services.dspy_integration import DSPyIntegrationService
+        from src.app.services.dspy_integration import DSPyIntegrationService
         
         # This would be called from the main app context
         # For now, return a simple streaming response

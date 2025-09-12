@@ -7,9 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api.endpoints import ingest, query
-from app.api.lifespan import lifespan
-from app.settings import get_settings
+from src.app.api.endpoints import ingest, query
+from src.app.api.lifespan import lifespan
+from src.app.settings import get_settings
 
 
 @asynccontextmanager
@@ -23,16 +23,16 @@ async def lifespan_manager(app: FastAPI):
     app.state.settings = settings
     
     # Initialize Qdrant client
-    from app.api.state import create_qdrant_client
+    from src.app.api.state import create_qdrant_client
     app.state.qdrant_client = create_qdrant_client(settings)
     
     # Initialize ColPali model and processor
-    from app.colpali.loaders import ColQwen2_5Loader
+    from src.app.colpali.loaders import ColQwen2_5Loader
     loader = ColQwen2_5Loader()
     app.state.colpali_model, app.state.colpali_processor = loader.load()
     
     # Initialize image storage
-    from app.services.image_storage import LocalImageStorage
+    from src.app.services.image_storage import LocalImageStorage
     app.state.image_storage = LocalImageStorage(
         storage_path=settings.storage.image_storage_path,
         temp_path=settings.storage.temp_storage_path,
@@ -47,7 +47,7 @@ async def lifespan_manager(app: FastAPI):
     )
     
     # Initialize DSPy integration service
-    from app.services.dspy_integration import DSPyIntegrationService
+    from src.app.services.dspy_integration import DSPyIntegrationService
     app.state.dspy_service = DSPyIntegrationService(settings, app.state.instructor_client)
     
     logger.info("Application startup completed")

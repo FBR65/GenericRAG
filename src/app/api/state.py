@@ -3,7 +3,7 @@ State management for the application
 """
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as http_models
-from app.settings import Settings
+from src.app.settings import Settings
 
 
 def create_qdrant_client(settings: Settings) -> AsyncQdrantClient:

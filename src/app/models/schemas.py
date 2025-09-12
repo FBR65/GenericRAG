@@ -1,9 +1,9 @@
 """
 Pydantic schemas for the RAG application
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic import BaseModel, Field
-from uuid import UUID4
+from uuid import UUID
 
 
 class IngestResult(BaseModel):
@@ -53,6 +53,17 @@ class SessionInfo(BaseModel):
     session_id: str = Field(..., description="Session identifier")
     documents: List[str] = Field(default_factory=list, description="List of documents in the session")
     created_at: str = Field(..., description="Creation timestamp")
+
+
+class SearchResult(BaseModel):
+    """Search result for query endpoint"""
+    
+    id: int = Field(..., description="Search result ID")
+    score: float = Field(..., description="Search result score")
+    document: str = Field(..., description="Document name")
+    page: int = Field(..., description="Page number")
+    image: Optional[Any] = Field(None, description="Associated image")
+    metadata: dict = Field(default_factory=dict, description="Additional metadata")
 
 
 class HealthResponse(BaseModel):

@@ -13,7 +13,7 @@ from instructor import AsyncInstructor
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from app.settings import Settings
+from src.app.settings import Settings
 
 
 class DSPyGEPAService:

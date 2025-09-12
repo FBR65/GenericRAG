@@ -8,8 +8,8 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from loguru import logger
 
-from app.api.dependencies import startup_dependencies, shutdown_dependencies
-from app.settings import Settings, get_settings
+from src.app.api.dependencies import startup_dependencies, shutdown_dependencies
+from src.app.settings import Settings, get_settings
 
 
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:

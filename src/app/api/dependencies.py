@@ -11,11 +11,11 @@ from fastapi import Depends
 from instructor import AsyncInstructor
 from qdrant_client import AsyncQdrantClient
 
-from app.api.state import create_qdrant_client
-from app.colpali.loaders import ColQwen2_5Loader
-from app.services.dspy_gepa import DSPyGEPAService
-from app.services.image_storage import LocalImageStorage
-from app.settings import Settings, get_settings
+from src.app.api.state import create_qdrant_client
+from src.app.colpali.loaders import ColQwen2_5Loader
+from src.app.services.dspy_gepa import DSPyGEPAService
+from src.app.services.image_storage import LocalImageStorage
+from src.app.settings import Settings, get_settings
 
 
 # Settings
@@ -86,7 +86,7 @@ async def initialize_qdrant_collection(
     settings: SettingsDep,
 ) -> None:
     """Initialize Qdrant collection"""
-    from app.api.state import initialize_qdrant_collection as init_collection
+    from src.app.api.state import initialize_qdrant_collection as init_collection
     
     await init_collection(
         qdrant_client=qdrant_client,

@@ -5,7 +5,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from app.settings import Settings, get_settings
+from src.app.settings import Settings, get_settings
 
 
 class TestSettings:
@@ -85,7 +85,7 @@ class TestQdrantSettings:
     def test_qdrant_settings(self):
         """Test Qdrant settings"""
         with patch.dict(os.environ, {}):
-            from app.settings import QdrantSettings
+            from src.app.settings import QdrantSettings
             
             settings = QdrantSettings()
             
@@ -100,7 +100,7 @@ class TestColpaliSettings:
     def test_colpali_settings(self):
         """Test ColPali settings"""
         with patch.dict(os.environ, {}):
-            from app.settings import ColpaliSettings
+            from src.app.settings import ColpaliSettings
             
             settings = ColpaliSettings()
             
@@ -113,7 +113,7 @@ class TestStorageSettings:
     def test_storage_settings(self):
         """Test storage settings"""
         with patch.dict(os.environ, {}):
-            from app.settings import StorageSettings
+            from src.app.settings import StorageSettings
             
             settings = StorageSettings()
             
@@ -128,7 +128,7 @@ class TestLLMSettings:
     def test_llm_settings(self):
         """Test LLM settings"""
         with patch.dict(os.environ, {}):
-            from app.settings import LLMSettings
+            from src.app.settings import LLMSettings
             
             settings = LLMSettings()
             
@@ -144,7 +144,7 @@ class TestDSPySettings:
     def test_dspy_settings(self):
         """Test DSPy settings"""
         with patch.dict(os.environ, {}):
-            from app.settings import DSPySettings
+            from src.app.settings import DSPySettings
             
             settings = DSPySettings()
             

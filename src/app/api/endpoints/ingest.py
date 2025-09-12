@@ -12,16 +12,16 @@ from loguru import logger
 from PIL import Image
 from qdrant_client.http import models as http_models
 
-from app.api.dependencies import (
+from src.app.api.dependencies import (
     ColPaliModelDep,
     ColPaliProcessorDep,
     ImageStorageDep,
     QdrantClientDep,
     SettingsDep,
 )
-from app.models.schemas import IngestResult, IngestResponse
-from app.utils.colpali_utils import generate_embeddings, preprocess_images
-from app.utils.qdrant_utils import (
+from src.app.models.schemas import IngestResult, IngestResponse
+from src.app.utils.colpali_utils import generate_embeddings, preprocess_images
+from src.app.utils.qdrant_utils import (
     create_payload_filter,
     create_collection_if_not_exists,
     upsert_with_retry,
@@ -32,13 +32,13 @@ router = APIRouter()
 
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest_pdf(
-    file: UploadFile = File(...),
+    qdrant_client: QdrantClientDep,
+    colpali_model: ColPaliModelDep,
+    colpali_processor: ColPaliProcessorDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
     session_id: Optional[str] = None,
-    qdrant_client: QdrantClientDep = Depends(),
-    colpali_model: ColPaliModelDep = Depends(),
-    colpali_processor: ColPaliProcessorDep = Depends(),
-    image_storage: ImageStorageDep = Depends(),
-    settings: SettingsDep = Depends(),
+    file: UploadFile = File(...),
 ) -> IngestResponse:
     """
     Ingest a PDF file into the RAG system
@@ -166,13 +166,13 @@ async def ingest_pdf(
 
 @router.post("/ingest-batch")
 async def ingest_multiple_pdfs(
-    files: List[UploadFile] = File(...),
+    qdrant_client: QdrantClientDep,
+    colpali_model: ColPaliModelDep,
+    colpali_processor: ColPaliProcessorDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
     session_id: Optional[str] = None,
-    qdrant_client: QdrantClientDep = Depends(),
-    colpali_model: ColPaliModelDep = Depends(),
-    colpali_processor: ColPaliProcessorDep = Depends(),
-    image_storage: ImageStorageDep = Depends(),
-    settings: SettingsDep = Depends(),
+    files: List[UploadFile] = File(...),
 ) -> IngestResponse:
     """
     Ingest multiple PDF files in batch
@@ -302,9 +302,9 @@ async def ingest_multiple_pdfs(
 
 @router.get("/sessions/{session_id}/documents")
 async def get_session_documents(
+    qdrant_client: QdrantClientDep,
+    settings: SettingsDep,
     session_id: str,
-    qdrant_client: QdrantClientDep = Depends(),
-    settings: SettingsDep = Depends(),
 ) -> List[str]:
     """
     Get list of documents in a session
@@ -340,10 +340,10 @@ async def get_session_documents(
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(
+    qdrant_client: QdrantClientDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
     session_id: str,
-    qdrant_client: QdrantClientDep = Depends(),
-    image_storage: ImageStorageDep = Depends(),
-    settings: SettingsDep = Depends(),
 ) -> dict:
     """
     Delete a session and all its data
