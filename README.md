@@ -109,14 +109,14 @@ uv run python src/app/frontend/gradio_app.py
 | `APP_HOST` | Application host | `0.0.0.0` |
 | `APP_PORT` | FastAPI port | `8000` |
 | `GRADIO_PORT` | Gradio port | `7860` |
-| `QDRANT_URL` | Qdrant instance URL | `http://10.84.0.7:6333` |
+| `QDRANT_URL` | Qdrant instance URL | `http://your_url:6333` |
 | `QDRANT_COLLECTION_NAME` | Qdrant collection name | `generic_rag_collection` |
 | `COLPALI_MODEL_NAME` | ColPali model name | `vidore/colqwen2.5-v0.2` |
 | `IMAGE_STORAGE_PATH` | Local image storage path | `./data/images` |
-| `GEMMA_BASE_URL` | Gemma model API URL | `http://10.78.0.5:8114/v1` |
+| `GEMMA_BASE_URL` | Gemma model API URL | `http://your_url:8114/v1` |
 | `GEMMA_API_KEY` | Gemma model API key | (required) |
-| `STUDENT_MODEL` | Student model for DSPy | `google/gemma-3-27b-it` |
-| `TEACHER_MODEL` | Teacher model for GEPA | `google/gemma-3-27b-it` |
+| `STUDENT_MODEL` | Student model for DSPy | `your_model` |
+| `TEACHER_MODEL` | Teacher model for GEPA | `your_model` |
 
 ### Model Configuration
 
@@ -128,7 +128,7 @@ The system uses two main models:
 
 2. **Gemma Model**: `google/gemma-3-27b-it`
    - Used for response generation via DSPy/GEPA optimization
-   - Accessible via local API at http://10.78.0.5:8114/v1
+   - Accessible via local API at http://your_url/v1
 
 ## Usage
 
