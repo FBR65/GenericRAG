@@ -44,8 +44,8 @@ A Retrieval-Augmented Generation system using ColPali for document processing an
 - Python 3.12.8+
 - uv package manager
 - Poppler-utils (for PDF to image conversion)
-- Access to Qdrant instance at http://10.84.0.7:6333
-- Access to Gemma model at http://10.78.0.5:8114/v1
+- Access to Qdrant instance at http://your_url:6333
+- Access to Gemma model at http://your_url/v1
 
 ### Installation
 
