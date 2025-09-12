@@ -1,0 +1,63 @@
+"""
+Pydantic schemas for the RAG application
+"""
+from typing import List, Optional
+from pydantic import BaseModel, Field
+from uuid import UUID4
+
+
+class IngestResult(BaseModel):
+    """Result of a single file ingestion"""
+    
+    filename: str = Field(..., description="Name of the ingested file")
+    num_pages: Optional[int] = Field(None, description="Number of pages in the PDF")
+    status: str = Field(..., description="Status of the ingestion (success/error)")
+    error: Optional[str] = Field(None, description="Error message if ingestion failed")
+
+
+class IngestResponse(BaseModel):
+    """Response for PDF ingestion endpoint"""
+    
+    results: List[IngestResult] = Field(..., description="List of ingestion results")
+
+
+class Reference(BaseModel):
+    """Reference to a source document"""
+    
+    id: int = Field(..., description="Sequential identifier for the reference")
+    title: str = Field(..., description="Title of the document")
+    filename: str = Field(..., description="Name of the file")
+    page: int = Field(..., description="Page number")
+
+
+class QueryResponse(BaseModel):
+    """Response for query endpoint"""
+    
+    query: str = Field(..., description="The original query")
+    answer: str = Field(..., description="The generated answer")
+    references: List[Reference] = Field(default_factory=list, description="List of references")
+    error: Optional[str] = Field(None, description="Error message if query failed")
+
+
+class QueryResult(BaseModel):
+    """Intermediate result for query processing"""
+    
+    query: str = Field(..., description="The original query")
+    context: str = Field(..., description="Retrieved context")
+    answer: str = Field(..., description="Generated answer")
+
+
+class SessionInfo(BaseModel):
+    """Information about a session"""
+    
+    session_id: str = Field(..., description="Session identifier")
+    documents: List[str] = Field(default_factory=list, description="List of documents in the session")
+    created_at: str = Field(..., description="Creation timestamp")
+
+
+class HealthResponse(BaseModel):
+    """Health check response"""
+    
+    status: str = Field(..., description="Health status")
+    version: str = Field(..., description="Application version")
+    timestamp: str = Field(..., description="Current timestamp")

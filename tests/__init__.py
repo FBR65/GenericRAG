@@ -1,1 +1,3 @@
-# Tests package for Generic RAG System
+"""
+Test module for GenericRAG
+"""

@@ -1,358 +1,332 @@
-# Generic RAG-System
 
-Ein fortschrittliches Retrieval-Augmented Generation (RAG)-System, das mit ColPali für visuelles Dokumentenverständnis, Qdrant für Vektorspeicherung und FastAPI/Gradio für die API- und Frontend-Schnittstelle aufgebaut ist.
+# GenericRAG - ColPali RAG System
 
-## Funktionen
+A Retrieval-Augmented Generation system using ColPali for document processing and DSPy/GEPA for optimized response generation.
 
-- **Visuelles Dokumentenverständnis**: Verwendet ColPali-Engine, um PDF-Seiten als Bilder zu verarbeiten
-- **Vektordatenbank**: Qdrant mit Kosinus-Distanz für effiziente Ähnlichkeitssuche
-- **KI-gestützte Antworten**: LLM-Integration für kontextbezogene Antwortgenerierung
-- **Quellenangaben**: Automatische Quellenzuordnung mit Dokument- und Seitenreferenzen
-- **Umfassende API**: Volle REST-API mit Upload-, Verarbeitungs-, Such- und Verwaltungsendpoints
-- **Benutzerfreundliche Oberfläche**: Gradio-basiertes Frontend mit zwei Tabs für Dokumentenverwaltung und Abfragen
-- **Komplett konfigurierbar**: Alle Einstellungen über config.py und Umgebungsvariablen
+## Features
 
-## Architektur
+- **Document Processing**: PDF ingestion using ColPali (vidore/colqwen2.5-v0.2)
+- **Vector Search**: Qdrant-based vector similarity search
+- **Optimized Responses**: DSPy/GEPA-powered response generation with google/gemma-3-27b-it
+- **Local Storage**: Local image storage (no external dependencies)
+- **Web Interface**: Gradio frontend with monochrome theme
+- **Streaming**: Real-time response streaming
+- **Session Management**: Multi-session support with document isolation
+
+## Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Gradio UI     │    │   FastAPI       │    │   Services      │
-│   (Frontend)    │◄──►│   (Backend)     │◄──►│   (Core Logic)  │
+│   FastAPI       │    │   Gradio        │    │   Qdrant        │
+│   Backend       │◄──►│   Frontend      │    │   Vector DB     │
+│                 │    │                 │    │                 │
+│ • Ingestion     │    │ • Upload Tab    │    │ • Embeddings    │
+│ • Query         │    │ • Query Tab     │    │ • Search        │
+│ • Streaming     │    │ • Monochrome    │    │ • Storage       │
+│ • Sessions      │    │   Theme         │    │                 │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
-                                               ┌─────────────────┐
-                                               │   Qdrant DB     │
-                                               │ (Vector Store)  │
-                                               └─────────────────┘
-                                                        │
-                                               ┌─────────────────┐
-                                               │   ColPali       │
-                                               │ (Embeddings)    │
-                                               └─────────────────┘
-                                                        │
-                                               ┌─────────────────┐
-                                               │   LLM Service   │
-                                               │ (OpenAI Compatible)│
-                                               └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                │
+                    ┌─────────────────┐
+                    │   Local Storage │
+                    │                 │
+                    │ • Images        │
+                    │ • Temp Files    │
+                    │ • DSPy Cache    │
+                    └─────────────────┘
 ```
 
-## Schnellstart
+## Quick Start
 
-### 1. Installation
+### Prerequisites
 
+- Python 3.12.8+
+- uv package manager
+- Poppler-utils (for PDF to image conversion)
+- Access to Qdrant instance at http://10.84.0.7:6333
+- Access to Gemma model at http://10.78.0.5:8114/v1
+
+### Installation
+
+1. **Clone the repository**
 ```bash
-# Repository klonen
 git clone <repository-url>
 cd GenericRAG
-
-# Abhängigkeiten mit uv installieren
-uv sync
 ```
 
-### 2. Konfiguration
+2. **Install dependencies**
+```bash
+uv sync --all-groups
+```
 
-Kopieren Sie die Beispielkonfigurationsdatei und passen Sie sie an:
+3. **Install poppler-utils**
+```bash
+# Ubuntu/Debian
+sudo apt-get install poppler-utils
 
+# Windows (using Chocolatey)
+choco install poppler
+
+# macOS (using Homebrew)
+brew install poppler
+```
+
+4. **Configure environment**
 ```bash
 cp .env.example .env
+# Edit .env with your configuration
 ```
 
-Bearbeiten Sie `.env` mit Ihrer Konfiguration:
-
-```env
-# System Configuration
-SYSTEM_NAME=Ihr RAG System
-SYSTEM_VERSION=1.0.0
-DESCRIPTION=Beschreibung Ihres RAG-Systems
-
-# Qdrant Configuration
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_API_KEY=ihre_qdrant_api_hier
-QDRANT_COLLECTION_NAME=ihre_dokumente
-
-# LLM Configuration
-LLM_ENDPOINT=http://localhost:8000/v1/chat/completions
-LLM_API_KEY=ihre_llm_api_hier
-LLM_MODEL=ihr-modell
-LLM_TEMPERATURE=0.7
-LLM_MAX_TOKENS=1000
-
-# ColPali Configuration
-COLPALI_MODEL_NAME=vidore/colqwen2-v1.0
-COLPALI_DEVICE=cuda:0
-
-# API Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
-API_TITLE=Ihre RAG API
-API_DESCRIPTION=REST API für Ihr RAG-System
-
-# Frontend Configuration
-FRONTEND_HOST=0.0.0.0
-FRONTEND_PORT=7860
-FRONTEND_TITLE=Ihre RAG Oberfläche
-```
-
-### 3. Dienste starten
-
-#### Option A: Mit Startskripten
-
+5. **Create necessary directories**
 ```bash
-# API-Server starten
-python start_api.py
-
-# In einem neuen Terminal das Frontend starten
-python start_frontend.py
+mkdir -p data/images data/temp data/dspy_cache logs
 ```
 
-#### Option B: Direkte Ausführung
-
+6. **Start the application**
 ```bash
-# API-Server starten
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+# Start FastAPI backend
+uv run python src/app/main.py
 
-# Frontend starten
-python src/frontend/app.py
+# In a separate terminal, start Gradio frontend
+uv run python src/app/frontend/gradio_app.py
 ```
 
-### 4. Anwendung aufrufen
+### Access the Application
 
-- **Frontend**: http://localhost:7860
-- **API-Dokumentation**: http://localhost:8000/docs
-- **API-Health-Check**: http://localhost:8000/health
+- **FastAPI Backend**: http://localhost:8000
+  - API Documentation: http://localhost:8000/docs
+  - Health Check: http://localhost:8000/health
 
-## Verwendung
+- **Gradio Frontend**: http://localhost:7860
 
-### Dokumenten-Upload & Verwaltung
+## Configuration
 
-1. Öffnen Sie die Gradio-Oberfläche
-2. Gehen Sie zum Tab "Dokumenten-Upload & Verwaltung"
-3. Laden Sie PDF-Dateien über die Datei-Upload-Schnittstelle hoch
-4. Klicken Sie auf "Upload & Verarbeiten", um die Dokumente zu verarbeiten
-5. Sehen Sie sich die verarbeiteten Dokumente in der Dokumentenliste an
-6. Verwenden Sie "Ausgewähltes Dokument löschen", um Dokumente zu entfernen
+### Environment Variables
 
-### Abfrageschnittstelle
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `APP_HOST` | Application host | `0.0.0.0` |
+| `APP_PORT` | FastAPI port | `8000` |
+| `GRADIO_PORT` | Gradio port | `7860` |
+| `QDRANT_URL` | Qdrant instance URL | `http://10.84.0.7:6333` |
+| `QDRANT_COLLECTION_NAME` | Qdrant collection name | `generic_rag_collection` |
+| `COLPALI_MODEL_NAME` | ColPali model name | `vidore/colqwen2.5-v0.2` |
+| `IMAGE_STORAGE_PATH` | Local image storage path | `./data/images` |
+| `GEMMA_BASE_URL` | Gemma model API URL | `http://10.78.0.5:8114/v1` |
+| `GEMMA_API_KEY` | Gemma model API key | (required) |
+| `STUDENT_MODEL` | Student model for DSPy | `google/gemma-3-27b-it` |
+| `TEACHER_MODEL` | Teacher model for GEPA | `google/gemma-3-27b-it` |
 
-1. Gehen Sie zum Tab "Abfrageschnittstelle"
-2. Geben Sie Ihre Frage in das Abfragefeld ein
-3. Passen Sie bei Bedarf die Anzahl der Ergebnisse an
-4. Klicken Sie auf "Suchen & Antwort generieren"
-5. Sehen Sie sich die generierte Antwort und Quellenangaben an
+### Model Configuration
 
-## API-Endpunkte
+The system uses two main models:
 
-### Kernendpunkte
+1. **ColPali Model**: `vidore/colqwen2.5-v0.2`
+   - Used for document image processing and embedding generation
+   - Processes entire PDF pages as images
 
-- `GET /` - Root-Endpunkt
-- `GET /health` - Health-Check
-- `GET /system-status` - Systemstatus
+2. **Gemma Model**: `google/gemma-3-27b-it`
+   - Used for response generation via DSPy/GEPA optimization
+   - Accessible via local API at http://10.78.0.5:8114/v1
 
-### Dokumentenverwaltung
+## Usage
 
-- `POST /upload` - Einzelnes PDF hochladen und verarbeiten
-- `POST /process` - Dokument aus Dateipfad verarbeiten
-- `POST /batch-upload` - Mehrere PDFs hochladen und verarbeiten
-- `GET /list-documents` - Alle Dokumente auflisten
-- `GET /document-status` - Dokumentstatus abrufen
-- `DELETE /delete` - Dokument löschen
-- `DELETE /clear-collection` - Alle Dokumente löschen
+### 1. Upload Documents
 
-### Suche & Abfrage
+1. Open the Gradio interface at http://localhost:7860
+2. Click on the "Upload Documents" tab
+3. Click "New Session" to start a fresh session
+4. Upload one or more PDF files
+5. Wait for the upload to complete
 
-- `POST /search` - Dokumente durchsuchen und Antwort generieren
+### 2. Query Documents
 
-### Beispiel-API-Verwendung
+1. Switch to the "Query Documents" tab
+2. Enter your question in the text box
+3. Click "Ask Question" or press Enter
+4. Wait for the response to generate
+5. Use the streaming toggle for real-time responses
 
-```bash
-# Dokument hochladen
-curl -X POST "http://localhost:8000/upload" \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/pfad/zum/document.pdf"}'
+### 3. Session Management
 
-# Nach Informationen suchen
-curl -X POST "http://localhost:8000/search" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Wie beantrage ich eine Lizenz?", "top_k": 5}'
+- **New Session**: Creates a fresh session for new projects
+- **Clear Session**: Removes all documents and data from current session
+- **Session Info**: Shows current session ID and uploaded documents
+
+## API Endpoints
+
+### Ingestion
+
+- `POST /api/v1/ingest` - Upload PDF files
+- `GET /api/v1/sessions/{session_id}/documents` - List session documents
+- `DELETE /api/v1/sessions/{session_id}` - Delete session
+
+### Query
+
+- `POST /api/v1/query` - Query documents (synchronous)
+- `POST /api/v1/query-stream` - Query documents (streaming)
+- `GET /api/v1/sessions/{session_id}/results` - Get session results
+
+### System
+
+- `GET /` - Root endpoint
+- `GET /health` - Health check
+- `GET /docs` - API documentation
+
+## 🔍 DSPy/GEPA Integration
+
+The system uses DSPy with GEPA (Gradient-based Evolutionary Prompt Adaptation) for optimized response generation:
+
+### Components
+
+1. **Analysis Module**: Processes document images and extracts relevant information
+2. **Summary Module**: Summarizes extracted information
+3. **Response Module**: Generates final response based on summary
+
+### Optimization
+
+- Uses teacher/student model architecture
+- Implements prompt optimization through GEPA
+- Supports performance evaluation and metrics
+- Caches optimized prompts for improved performance
+
+## Project Structure
+
 ```
-
-## Konfigurationsoptionen
-
-### Umgebungsvariablen
-
-| Variable | Beschreibung | Standardwert |
-|----------|-------------|-------------|
-| `SYSTEM_NAME` | Name des Systems | `Generic RAG System` |
-| `SYSTEM_VERSION` | Version des Systems | `1.0.0` |
-| `DESCRIPTION` | Systembeschreibung | `Generic RAG System for Document Processing` |
-| `QDRANT_HOST` | Qdrant-Server-Host | `localhost` |
-| `QDRANT_PORT` | Qdrant-Server-Port | `6333` |
-| `QDRANT_API_KEY` | Qdrant-API-Schlüssel | `None` |
-| `QDRANT_COLLECTION_NAME` | Qdrant-Sammlungsname | `rag_documents` |
-| `LLM_ENDPOINT` | LLM-Service-Endpunkt | `http://localhost:8000/v1/chat/completions` |
-| `LLM_API_KEY` | LLM-API-Schlüssel | `None` |
-| `LLM_MODEL` | LLM-Modellname | `custom-model` |
-| `LLM_TEMPERATURE` | LLM-Temperatur | `0.7` |
-| `LLM_MAX_TOKENS` | LLM-Maximal-Token | `1000` |
-| `COLPALI_MODEL_NAME` | ColPali-Modellname | `vidore/colqwen2-v1.0` |
-| `COLPALI_DEVICE` | ColPali-Gerät | `cuda:0` |
-| `API_HOST` | API-Server-Host | `0.0.0.0` |
-| `API_PORT` | API-Server-Port | `8000` |
-| `API_TITLE` | API-Titel | `Generic RAG API` |
-| `API_DESCRIPTION` | API-Beschreibung | `REST API for Generic RAG System` |
-| `FRONTEND_HOST` | Frontend-Host | `0.0.0.0` |
-| `FRONTEND_PORT` | Frontend-Port | `7860` |
-| `FRONTEND_TITLE` | Frontend-Titel | `Generic RAG System` |
-| `MAX_FILE_SIZE` | Maximale Dateigröße (Bytes) | `10485760` |
-| `SEARCH_TOP_K` | Anzahl der Suchergebnisse | `5` |
-
-### Hardware-Anforderungen
-
-- **GPU**: Empfohlen für ColPali-Modell (NVIDIA-GPU mit CUDA-Unterstützung)
-- **RAM**: Minimum 8GB, 16GB+ empfohlen
-- **Speicher**: Ausreichend Platz für PDF-Dateien und Vektoreinbettungen
-- **Internet**: Für LLM-Service-Anrufe erforderlich
-
-## Entwicklung
-
-### Projektstruktur
-
-```
-RAG-System/
+GenericRAG/
 ├── src/
-│   ├── api/
-│   │   └── main.py              # FastAPI-Anwendung
-│   ├── services/
-│   │   ├── document_processor.py # Hauptverarbeitungspipeline
-│   │   ├── embedding_service.py # ColPali-Einbettungen
-│   │   └── llm_service.py       # LLM-Integration
-│   ├── utils/
-│   │   ├── pdf_converter.py     # PDF-zu-Bild-Konvertierung
-│   │   └── qdrant_client.py     # Qdrant-Datenbankclient
-│   └── config.py                # Konfigurationsmanagement
-├── src/frontend/
-│   └── app.py                   # Gradio-Oberfläche
-├── start_api.py                 # API-Server-Startskript
-├── start_frontend.py            # Frontend-Startskript
-├── .env.example                 # Umgebungskonfigurationsvorlage
-└── README.md                    # Diese Datei
+│   └── app/
+│       ├── api/
+│       │   ├── endpoints/
+│       │   │   ├── ingest.py      # PDF ingestion endpoints
+│       │   │   └── query.py       # Query endpoints
+│       │   ├── dependencies.py   # API dependencies
+│       │   ├── lifespan.py       # Application lifecycle
+│       │   └── state.py          # Application state
+│       ├── colpali/
+│       │   ├── __init__.py
+│       │   └── loaders.py        # ColPali model loading
+│       ├── frontend/
+│       │   ├── __init__.py
+│       │   └── gradio_app.py     # Gradio interface
+│       ├── models/
+│       │   ├── __init__.py
+│       │   └── schemas.py        # Pydantic models
+│       ├── services/
+│       │   ├── __init__.py
+│       │   ├── dspy_integration.py # DSPy/GEPA service
+│       │   └── image_storage.py   # Local image storage
+│       ├── utils/
+│       │   ├── __init__.py
+│       │   ├── colpali_utils.py  # ColPali utilities
+│       │   └── qdrant_utils.py   # Qdrant utilities
+│       ├── __init__.py
+│       ├── main.py               # FastAPI application
+│       └── settings.py           # Application settings
+├── tests/                        # Test files
+├── data/                         # Data storage
+│   ├── images/                   # Uploaded images
+│   ├── temp/                     # Temporary files
+│   └── dspy_cache/               # DSPy cache
+├── logs/                         # Log files
+├── .env                          # Environment variables
+├── pyproject.toml               # Project configuration
+├── README.md                    # This file
+└── uv.lock                      # Dependency lock
 ```
 
-### Neue Funktionen hinzufügen
+## Testing
 
-1. **Neue Endpunkte**: Zu `src/api/main.py` hinzufügen
-2. **Neue Dienste**: Zu `src/services/` hinzufügen
-3. **Neue Utilities**: Zu `src/utils/` hinzufügen
-4. **Konfiguration**: `src/config.py` und `.env.example` aktualisieren
-
-### Tests
-
-Das System enthält einen umfassenden Test-Suite mit Unit- und Integrationstests.
-
-#### Test-Abhängigkeiten installieren
+Run the test suite:
 
 ```bash
-# Test-Abhängigkeiten mit uv installieren
-uv add --group test pytest pytest-cov pytest-asyncio pytest-mock httpx
+# Run all tests
+uv run pytest
 
-# Oder mit pip installieren
-pip install pytest pytest-cov pytest-asyncio pytest-mock httpx
+# Run with coverage
+uv run pytest --cov=src
+
+# Run specific test categories
+uv run pytest -m unit          # Unit tests only
+uv run pytest -m integration   # Integration tests only
+uv run pytest -m slow          # Slow tests only
 ```
 
-#### Tests ausführen
+## Performance
+
+### Benchmarks
+
+The system has been optimized for:
+
+- **Document Processing**: Efficient PDF to image conversion
+- **Vector Search**: Fast similarity search with Qdrant
+- **Response Generation**: Optimized through DSPy/GEPA
+- **Memory Usage**: Local storage reduces external dependencies
+
+### Monitoring
+
+- Application logs are stored in `logs/app.log`
+- Health check endpoint available at `/health`
+- Performance metrics available through API documentation
+
+## Security
+
+- API keys stored in environment variables
+- Input validation on all endpoints
+- Error handling without sensitive information leakage
+- CORS configuration for production deployment
+
+## Deployment
+
+### Docker
 
 ```bash
-# Alle Tests ausführen
-python run_tests.py
+# Build image
+docker build -t generic-rag .
 
-# Oder direkt mit pytest
-python -m pytest tests/ -v
-
-# Tests mit Coverage-Bericht
-python run_tests.py coverage
-
-# Oder direkt mit pytest
-python -m pytest tests/ --cov=src --cov-report=html --cov-report=term-missing
-
-# Spezifische Test-Datei ausführen
-python run_tests.py specific tests/test_config.py
-
-# Spezifische Test-Funktion ausführen
-python -m pytest tests/test_config.py::TestSettings::test_default_settings -v
-
-# Nur Unit-Tests ausführen
-python -m pytest tests/ -m "not integration" -v
-
-# Nur Integrationstests ausführen
-python -m pytest tests/ -m integration -v
-
-# Nur langsame Tests ausführen
-python -m pytest tests/ -m slow -v
+# Run container
+docker run -p 8000:8000 -p 7860:7860 generic-rag
 ```
 
-#### Test-Berichte
+### Production
 
-Nach dem Ausführen der Tests mit Coverage wird ein HTML-Bericht in `htmlcov/index.html` generiert.
+1. Set environment variables for production
+2. Configure proper CORS origins
+3. Set up logging and monitoring
+4. Use reverse proxy (nginx/Apache) for SSL termination
+5. Set up proper file permissions for data directories
 
-#### Test-Struktur
 
-```
-tests/
-├── __init__.py                 # Test-Paket
-├── test_config.py              # Konfigurationstests
-├── test_pdf_converter.py       # PDF-Konverter-Tests
-├── test_qdrant_client.py       # Qdrant-Client-Tests
-└── test_api.py                 # API-Endpunkt-Tests
-```
+## 📄 License
 
-#### Test-Kategorien
+This project is licensed under the AGPLv3 License - see the LICENSE file for details.
 
-- **Unit-Tests**: Testen einzelner Komponenten isoliert
-- **Integrationstests**: Testen der Zusammenarbeit mehrerer Komponenten
-- **API-Tests**: Testen der REST-API-Endpunkte
-- **Service-Tests**: Testen der Kernservices
+## Troubleshooting
 
-#### Test-Coverage
+### Common Issues
 
-Das Ziel ist ein Test-Coverage von mindestens 80%. Das Coverage wird automatisch gemessen und im Bericht angezeigt.
+1. **PDF Upload Fails**
+   - Check poppler-utils installation
+   - Verify PDF file is not corrupted
+   - Check file size limits
 
-#### Code-Qualität
+2. **Model Loading Issues**
+   - Verify model availability
+   - Check API connectivity
+   - Ensure sufficient memory
 
-```bash
-# Code-Linting ausführen
-python run_tests.py lint
+3. **Qdrant Connection Issues**
+   - Verify Qdrant instance is running
+   - Check network connectivity
+   - Validate API credentials
 
-# Oder mit ruff direkt
-ruff check src/ tests/
+4. **Gradio Interface Issues**
+   - Check if ports are available
+   - Verify frontend dependencies
+   - Check browser console for errors
 
-# Code-Formatierung prüfen
-black --check src/ tests/
-```
+### Getting Help
 
-## Fehlerbehebung
-
-### Häufige Probleme
-
-1. **GPU-Speicherprobleme**
-   - Batch-Größe in der Verarbeitung reduzieren
-   - CPU-Modus verwenden: `COLPALI_DEVICE=cpu`
-
-2. **Qdrant-Verbindungsprobleme**
-   - Überprüfen, ob Qdrant läuft
-   - Verbindungsparameter in `.env` prüfen
-   - Verbindung mit `curl http://localhost:6333/` testen
-
-3. **LLM-API-Probleme**
-   - Überprüfen, ob der API-Schlüssel korrekt ist
-   - Endpunkt-URL prüfen
-   - Mit einfachem curl-Test testen
-
-4. **ColPali-Modell-Ladeprobleme**
-   - Ausreichend GPU-Speicher sicherstellen
-   - Modellname und Verfügbarkeit überprüfen
-   - PyTorch- und CUDA-Installation überprüfen
-
-## Lizenz
-
-Der Code steht unter MIT-Lizenz
+- Check the logs in `logs/app.log`
+- Review API documentation at `/docs`

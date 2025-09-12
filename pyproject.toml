@@ -1,65 +1,173 @@
 [project]
-name = "genericrag"
-version = "0.1.0"
-description = "Add your description here"
+name = "generic-rag"
+version = "1.0.0"
+description = "A Retrieval-Augmented Generation system using ColPali for document processing and DSPy/GEPA for optimized response generation"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12.8"
 dependencies = [
-    "torch>=2.7.0",
-    "colpali-engine>=0.3.12",
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "qdrant-client>=1.6.0",
-    "python-multipart>=0.0.6",
-    "PyMuPDF>=1.23.0",
-    "Pillow>=10.0.0",
-    "openai>=1.0.0",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.0.0",
+    "colpali-engine",
+    "fastapi[standard]>=0.115.8",
+    "instructor[anthropic]>=1.7.2",
+    "loguru>=0.7.3",
+    "pdf2image>=1.17.0",
+    "pydantic-settings>=2.8.0",
+    "qdrant-client>=1.13.2",
+    "tenacity>=9.0.0",
+    "httpx>=0.27.0",
+    "gradio>=4.44.0",
+    "dspy-ai>=2.4.0",
+    "pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+    "accelerate>=0.25.0",
+    "bitsandbytes>=0.41.0",
+    "sentence-transformers>=2.2.0",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.10",
+    "langchain-huggingface>=0.0.5",
+    "faiss-cpu>=1.7.0",
     "python-dotenv>=1.0.0",
-    "gradio>=4.0.0",
-    "loguru>=0.7.0",
-    "pytest>=8.4.1",
-    "hf-xet>=1.1.9",
+    "pydantic>=2.5.0",
+    "uvicorn>=0.24.0",
+    "python-multipart>=0.0.6",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.5",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "pre-commit>=3.4.0",
+]
+type = [
+    "mypy>=1.15.0",
+    "types-pillow>=10.0.0",
+    "types-requests>=2.31.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.4.0",
+    "mkdocs-mermaid2-plugin>=1.1.0",
+]
+
+[tool.uv.sources]
+colpali-engine = { git = "https://github.com/illuin-tech/colpali" }
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "ARG001", # unused arguments in functions
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "W191",  # indentation contains tabs
+    "B904",  # Allow raising exceptions without from e, for HTTPException
+]
+
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py"]
+python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "-v",
-    "--tb=short",
     "--strict-markers",
-    "--disable-warnings",
-    "--color=yes",
+    "--strict-config",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
 ]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
 ]
 
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.10.0",
-    "httpx>=0.24.0",
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
 ]
 
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https//download.pytorch.org/whl/cu128"
-explicit = true
+[tool.black]
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
 
-[dependency-groups]
-test = [
-    "pytest-cov>=6.2.1",
-]
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["src"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B601"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src"]
