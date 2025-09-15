@@ -34,9 +34,29 @@ QdrantClientDep = Annotated[AsyncQdrantClient, Depends(get_qdrant_client)]
 # ColPali model and processor
 async def get_colpali_model_and_processor() -> tuple[ColQwen2_5, ColQwen2_5_Processor]:
     """Get ColPali model and processor"""
-    loader = ColQwen2_5Loader()
-    model, processor = loader.load()
-    return model, processor
+    import threading
+    import asyncio
+    
+    thread_id = threading.get_ident()
+    logger = get_settings().logger if hasattr(get_settings(), 'logger') else None
+    
+    if logger:
+        logger.info(f"[Thread {thread_id}] get_colpali_model_and_processor called")
+        logger.info(f"[Thread {thread_id}] Current event loop: {asyncio.get_event_loop()}")
+        logger.info(f"[Thread {thread_id}] Active tasks: {len(asyncio.all_tasks())}")
+    
+    try:
+        loader = ColQwen2_5Loader()
+        model, processor = loader.load()
+        
+        if logger:
+            logger.info(f"[Thread {thread_id}] ColPali model loaded successfully")
+        
+        return model, processor
+    except Exception as e:
+        if logger:
+            logger.error(f"[Thread {thread_id}] Error in get_colpali_model_and_processor: {e}")
+        raise
 
 
 ColPaliModelDep = Annotated[ColQwen2_5, Depends(get_colpali_model_and_processor)]

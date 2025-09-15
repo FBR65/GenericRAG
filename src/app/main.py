@@ -15,8 +15,10 @@ from src.app.settings import get_settings
 @asynccontextmanager
 async def lifespan_manager(app: FastAPI):
     """Application lifespan manager"""
-    # Startup
-    logger.info("Starting GenericRAG application...")
+    import threading
+    
+    thread_id = threading.get_ident()
+    logger.info(f"[Lifespan Thread {thread_id}] Starting GenericRAG application...")
     
     # Initialize settings
     settings = get_settings()
@@ -28,8 +30,10 @@ async def lifespan_manager(app: FastAPI):
     
     # Initialize ColPali model and processor
     from src.app.colpali.loaders import ColQwen2_5Loader
+    logger.info(f"[Lifespan Thread {thread_id}] Loading ColPali model in lifespan manager...")
     loader = ColQwen2_5Loader()
     app.state.colpali_model, app.state.colpali_processor = loader.load()
+    logger.info(f"[Lifespan Thread {thread_id}] ColPali model loaded in lifespan manager")
     
     # Initialize image storage
     from src.app.services.image_storage import LocalImageStorage
@@ -50,12 +54,12 @@ async def lifespan_manager(app: FastAPI):
     from src.app.services.dspy_integration import DSPyIntegrationService
     app.state.dspy_service = DSPyIntegrationService(settings, app.state.instructor_client)
     
-    logger.info("Application startup completed")
+    logger.info(f"[Lifespan Thread {thread_id}] Application startup completed")
     
     yield
     
     # Shutdown
-    logger.info("Shutting down GenericRAG application...")
+    logger.info(f"[Lifespan Thread {thread_id}] Shutting down GenericRAG application...")
     # Cleanup will be handled by the lifespan context
 
 

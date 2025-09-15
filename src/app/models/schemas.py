@@ -6,6 +6,26 @@ from pydantic import BaseModel, Field
 from uuid import UUID
 
 
+class Reference(BaseModel):
+    """Reference to a source document"""
+    
+    id: int = Field(..., description="Sequential identifier for the reference")
+    title: str = Field(..., description="Title of the document")
+    filename: str = Field(..., description="Name of the file")
+    page: int = Field(..., description="Page number")
+
+
+class SearchResult(BaseModel):
+    """Search result for query endpoint"""
+    
+    id: int = Field(..., description="Search result ID")
+    score: float = Field(..., description="Search result score")
+    document: str = Field(..., description="Document name")
+    page: int = Field(..., description="Page number")
+    image: Optional[Any] = Field(None, description="Associated image")
+    metadata: dict = Field(default_factory=dict, description="Additional metadata")
+
+
 class IngestResult(BaseModel):
     """Result of a single file ingestion"""
     
@@ -21,22 +41,14 @@ class IngestResponse(BaseModel):
     results: List[IngestResult] = Field(..., description="List of ingestion results")
 
 
-class Reference(BaseModel):
-    """Reference to a source document"""
-    
-    id: int = Field(..., description="Sequential identifier for the reference")
-    title: str = Field(..., description="Title of the document")
-    filename: str = Field(..., description="Name of the file")
-    page: int = Field(..., description="Page number")
-
-
 class QueryResponse(BaseModel):
     """Response for query endpoint"""
     
     query: str = Field(..., description="The original query")
-    answer: str = Field(..., description="The generated answer")
-    references: List[Reference] = Field(default_factory=list, description="List of references")
-    error: Optional[str] = Field(None, description="Error message if query failed")
+    session_id: str = Field(..., description="Session identifier")
+    results: List[SearchResult] = Field(default_factory=list, description="Search results")
+    response: str = Field(..., description="Generated response")
+    total_results: int = Field(..., description="Total number of results")
 
 
 class QueryResult(BaseModel):
@@ -53,17 +65,6 @@ class SessionInfo(BaseModel):
     session_id: str = Field(..., description="Session identifier")
     documents: List[str] = Field(default_factory=list, description="List of documents in the session")
     created_at: str = Field(..., description="Creation timestamp")
-
-
-class SearchResult(BaseModel):
-    """Search result for query endpoint"""
-    
-    id: int = Field(..., description="Search result ID")
-    score: float = Field(..., description="Search result score")
-    document: str = Field(..., description="Document name")
-    page: int = Field(..., description="Page number")
-    image: Optional[Any] = Field(None, description="Associated image")
-    metadata: dict = Field(default_factory=dict, description="Additional metadata")
 
 
 class HealthResponse(BaseModel):

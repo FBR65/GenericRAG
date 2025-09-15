@@ -13,7 +13,14 @@ class TestSettings:
     
     def test_settings_initialization(self):
         """Test settings initialization with default values"""
-        with patch.dict(os.environ, {}):
+        # Clear environment variables that might affect the test
+        old_env = {}
+        for key in list(os.environ.keys()):
+            if key.startswith(('APP_', 'GRADIO_', 'QDRANT_', 'COLPALI_', 'LLM_', 'IMAGE_', 'DSPY_')):
+                old_env[key] = os.environ[key]
+                del os.environ[key]
+        
+        try:
             settings = Settings()
             
             # Test default values
@@ -32,6 +39,10 @@ class TestSettings:
             assert settings.dspy.max_full_evals == 3
             assert settings.dspy.num_threads == 4
             assert settings.dspy.track_stats is True
+        finally:
+            # Restore environment variables
+            for key, value in old_env.items():
+                os.environ[key] = value
     
     def test_settings_with_environment_variables(self):
         """Test settings with environment variables"""
@@ -53,6 +64,14 @@ class TestSettings:
         }
         
         with patch.dict(os.environ, env_vars):
+            # Clear the cache to force fresh settings
+            import src.app.settings
+            src.app.settings.get_settings.cache_clear()
+            
+            # Force reload of settings to pick up environment variables
+            import importlib
+            importlib.reload(src.app.settings)
+            from src.app.settings import Settings
             settings = Settings()
             
             assert settings.app.host == "127.0.0.1"
@@ -84,7 +103,14 @@ class TestQdrantSettings:
     
     def test_qdrant_settings(self):
         """Test Qdrant settings"""
-        with patch.dict(os.environ, {}):
+        # Clear environment variables that might affect the test
+        old_env = {}
+        for key in list(os.environ.keys()):
+            if key.startswith(('QDRANT_',)):
+                old_env[key] = os.environ[key]
+                del os.environ[key]
+        
+        try:
             from src.app.settings import QdrantSettings
             
             settings = QdrantSettings()
@@ -92,6 +118,10 @@ class TestQdrantSettings:
             assert settings.collection_name == "generic_rag_collection"
             assert settings.qdrant_url == "http://10.84.0.7:6333"
             assert settings.qdrant_api_key == ""
+        finally:
+            # Restore environment variables
+            for key, value in old_env.items():
+                os.environ[key] = value
 
 
 class TestColpaliSettings:
@@ -99,12 +129,23 @@ class TestColpaliSettings:
     
     def test_colpali_settings(self):
         """Test ColPali settings"""
-        with patch.dict(os.environ, {}):
+        # Clear environment variables that might affect the test
+        old_env = {}
+        for key in list(os.environ.keys()):
+            if key.startswith(('COLPALI_',)):
+                old_env[key] = os.environ[key]
+                del os.environ[key]
+        
+        try:
             from src.app.settings import ColpaliSettings
             
             settings = ColpaliSettings()
             
             assert settings.colpali_model_name == "vidore/colqwen2.5-v0.2"
+        finally:
+            # Restore environment variables
+            for key, value in old_env.items():
+                os.environ[key] = value
 
 
 class TestStorageSettings:
@@ -112,7 +153,14 @@ class TestStorageSettings:
     
     def test_storage_settings(self):
         """Test storage settings"""
-        with patch.dict(os.environ, {}):
+        # Clear environment variables that might affect the test
+        old_env = {}
+        for key in list(os.environ.keys()):
+            if key.startswith(('IMAGE_', 'DSPY_')):
+                old_env[key] = os.environ[key]
+                del os.environ[key]
+        
+        try:
             from src.app.settings import StorageSettings
             
             settings = StorageSettings()
@@ -120,6 +168,10 @@ class TestStorageSettings:
             assert settings.image_storage_path == "./data/images"
             assert settings.temp_storage_path == "./data/temp"
             assert settings.dspy_cache_path == "./data/dspy_cache"
+        finally:
+            # Restore environment variables
+            for key, value in old_env.items():
+                os.environ[key] = value
 
 
 class TestLLMSettings:
@@ -127,15 +179,28 @@ class TestLLMSettings:
     
     def test_llm_settings(self):
         """Test LLM settings"""
-        with patch.dict(os.environ, {}):
+        # Clear environment variables that might affect the test
+        old_env = {}
+        for key in list(os.environ.keys()):
+            if key.startswith(('LLM_', 'TEACHER_', 'STUDENT_', 'GEMMA_')):
+                old_env[key] = os.environ[key]
+                del os.environ[key]
+        
+        try:
             from src.app.settings import LLMSettings
             
             settings = LLMSettings()
             
             assert settings.student_model == "google/gemma-3-27b-it"
             assert settings.teacher_model == "google/gemma-3-27b-it"
+            assert settings.student_base_url == "http://10.78.0.5:8114/v1"
+            assert settings.teacher_base_url == "http://10.78.0.5:8114/v1"
             assert settings.gemma_base_url == "http://10.78.0.5:8114/v1"
             assert settings.gemma_api_key == "your_gemma_api_key_here"
+        finally:
+            # Restore environment variables
+            for key, value in old_env.items():
+                os.environ[key] = value
 
 
 class TestDSPySettings:
@@ -143,7 +208,14 @@ class TestDSPySettings:
     
     def test_dspy_settings(self):
         """Test DSPy settings"""
-        with patch.dict(os.environ, {}):
+        # Clear environment variables that might affect the test
+        old_env = {}
+        for key in list(os.environ.keys()):
+            if key.startswith(('DSPY_',)):
+                old_env[key] = os.environ[key]
+                del os.environ[key]
+        
+        try:
             from src.app.settings import DSPySettings
             
             settings = DSPySettings()
@@ -151,6 +223,10 @@ class TestDSPySettings:
             assert settings.max_full_evals == 3
             assert settings.num_threads == 4
             assert settings.track_stats is True
+        finally:
+            # Restore environment variables
+            for key, value in old_env.items():
+                os.environ[key] = value
 
 
 if __name__ == "__main__":

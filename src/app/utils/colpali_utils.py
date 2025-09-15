@@ -72,6 +72,9 @@ def process_query(
     Returns:
         Query embedding tensor
     """
+    if not query or not query.strip():
+        raise ValueError("Query cannot be empty")
+    
     with torch.inference_mode():
         processed_queries = processor.process_queries(queries=[query]).to(model.device)
         query_embeddings = model(**processed_queries)
@@ -161,3 +164,83 @@ def preprocess_images(images: List[Image.Image], target_size: tuple = (1024, 102
     
     logger.info(f"Preprocessed {len(processed_images)} images")
     return processed_images
+
+
+def create_thumbnail(image: Image.Image, size: int = 224) -> Image.Image:
+    """
+    Create a thumbnail from an image
+    
+    Args:
+        image: PIL Image to create thumbnail from
+        size: Target size for the thumbnail
+        
+    Returns:
+        PIL Image thumbnail
+    """
+    # Create a copy to avoid modifying the original
+    thumbnail = image.copy()
+    
+    # Create thumbnail while maintaining aspect ratio
+    thumbnail.thumbnail((size, size), Image.Resampling.LANCZOS)
+    
+    # Create a square canvas with the target size
+    square_thumbnail = Image.new('RGB', (size, size), (255, 255, 255))
+    
+    # Calculate position to center the thumbnail
+    position = (
+        (size - thumbnail.width) // 2,
+        (size - thumbnail.height) // 2
+    )
+    
+    # Paste the thumbnail onto the square canvas
+    square_thumbnail.paste(thumbnail, position)
+    
+    return square_thumbnail
+
+
+def image_to_base64(image: Image.Image) -> str:
+    """
+    Convert a PIL Image to base64 string
+    
+    Args:
+        image: PIL Image to convert
+        
+    Returns:
+        Base64 encoded string with data URI prefix
+    """
+    import base64
+    from io import BytesIO
+    
+    # Convert image to bytes
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    
+    # Encode to base64
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    # Return data URI
+    return f"data:image/png;base64,{img_str}"
+
+
+def base64_to_image(base64_str: str) -> Image.Image:
+    """
+    Convert a base64 string to PIL Image
+    
+    Args:
+        base64_str: Base64 encoded string with optional data URI prefix
+        
+    Returns:
+        PIL Image
+    """
+    import base64
+    from io import BytesIO
+    
+    # Remove data URI prefix if present
+    if base64_str.startswith("data:image/"):
+        base64_str = base64_str.split(",")[1]
+    
+    # Decode from base64
+    img_data = base64.b64decode(base64_str)
+    
+    # Convert to PIL Image
+    return Image.open(BytesIO(img_data))

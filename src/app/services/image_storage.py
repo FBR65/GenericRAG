@@ -15,8 +15,8 @@ class LocalImageStorage:
     
     def __init__(
         self,
-        storage_path: Path,
-        temp_path: Path,
+        storage_path: str,
+        temp_path: str,
         image_format: str = "JPEG",
         image_quality: int = 95,
     ):
@@ -29,8 +29,8 @@ class LocalImageStorage:
             image_format: Image format (JPEG, PNG, etc.)
             image_quality: Image quality (1-100)
         """
-        self.storage_path = storage_path
-        self.temp_path = temp_path
+        self.storage_path = Path(storage_path)
+        self.temp_path = Path(temp_path)
         self.image_format = image_format.upper()
         self.image_quality = image_quality
         

@@ -94,6 +94,16 @@ async def search_with_retry(
         )
         
         logger.debug(f"Found {len(response.points)} results")
+        
+        # Apply score threshold filtering if specified
+        if score_threshold is not None:
+            filtered_points = [
+                point for point in response.points
+                if hasattr(point, 'score') and point.score >= score_threshold
+            ]
+            logger.debug(f"Filtered to {len(filtered_points)} results with score >= {score_threshold}")
+            response.points = filtered_points
+        
         return response
         
     except Exception as e:
@@ -277,4 +287,4 @@ def create_payload_filter(
             )
         )
     
-    return models.Filter(must=conditions) if conditions else None
+    return models.Filter(must=conditions) if conditions else models.Filter(must=[])
