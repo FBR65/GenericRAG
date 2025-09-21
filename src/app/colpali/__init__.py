@@ -1,3 +1,0 @@
-"""
-ColPali module initialization
-"""

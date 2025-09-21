@@ -1,18 +1,17 @@
 """
 FastAPI dependency injection
 """
+
 import asyncio
 from pathlib import Path
 from typing import Annotated
 
 import instructor
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 from fastapi import Depends
 from instructor import AsyncInstructor
 from qdrant_client import AsyncQdrantClient
 
 from src.app.api.state import create_qdrant_client
-from src.app.colpali.loaders import ColQwen2_5Loader
 from src.app.services.dspy_gepa import DSPyGEPAService
 from src.app.services.image_storage import LocalImageStorage
 from src.app.settings import Settings, get_settings
@@ -29,38 +28,6 @@ async def get_qdrant_client(settings: SettingsDep) -> AsyncQdrantClient:
 
 
 QdrantClientDep = Annotated[AsyncQdrantClient, Depends(get_qdrant_client)]
-
-
-# ColPali model and processor
-async def get_colpali_model_and_processor() -> tuple[ColQwen2_5, ColQwen2_5_Processor]:
-    """Get ColPali model and processor"""
-    import threading
-    import asyncio
-    
-    thread_id = threading.get_ident()
-    logger = get_settings().logger if hasattr(get_settings(), 'logger') else None
-    
-    if logger:
-        logger.info(f"[Thread {thread_id}] get_colpali_model_and_processor called")
-        logger.info(f"[Thread {thread_id}] Current event loop: {asyncio.get_event_loop()}")
-        logger.info(f"[Thread {thread_id}] Active tasks: {len(asyncio.all_tasks())}")
-    
-    try:
-        loader = ColQwen2_5Loader()
-        model, processor = loader.load()
-        
-        if logger:
-            logger.info(f"[Thread {thread_id}] ColPali model loaded successfully")
-        
-        return model, processor
-    except Exception as e:
-        if logger:
-            logger.error(f"[Thread {thread_id}] Error in get_colpali_model_and_processor: {e}")
-        raise
-
-
-ColPaliModelDep = Annotated[ColQwen2_5, Depends(get_colpali_model_and_processor)]
-ColPaliProcessorDep = Annotated[ColQwen2_5_Processor, Depends(get_colpali_model_and_processor)]
 
 
 # Image storage
@@ -107,11 +74,11 @@ async def initialize_qdrant_collection(
 ) -> None:
     """Initialize Qdrant collection"""
     from src.app.api.state import initialize_qdrant_collection as init_collection
-    
+
     await init_collection(
         qdrant_client=qdrant_client,
         collection_name=settings.qdrant.collection_name,
-        vector_size=768,  # ColQwen2.5 embedding size
+        vector_size=768,  # Default embedding size
     )
 
 
@@ -123,7 +90,7 @@ async def startup_dependencies(
     """Startup dependencies"""
     # Initialize Qdrant collection
     await initialize_qdrant_collection(qdrant_client, settings)
-    
+
     # Initialize other services if needed
     logger = settings.storage.image_storage_path.parent / "logs"
     logger.mkdir(parents=True, exist_ok=True)
