@@ -1,1 +1,0 @@
-# PDFExtractor Package
