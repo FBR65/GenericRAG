@@ -153,7 +153,7 @@ async def hybrid_search_with_retry(
     )
 
     try:
-        # Create query for dense vectors
+        # Execute dense vector search
         dense_query = models.QueryRequest(
             query=models.Vector(
                 name="dense",
@@ -165,19 +165,6 @@ async def hybrid_search_with_retry(
             score_threshold=score_threshold,
         )
 
-        # Create query for sparse vectors
-        sparse_query = models.QueryRequest(
-            query=models.SparseVector(
-                name="sparse",
-                vector=sparse_vector,
-            ),
-            limit=limit,
-            query_filter=query_filter,
-            with_payload=True,
-            score_threshold=score_threshold,
-        )
-
-        # Execute both queries
         dense_response = await qdrant_client.query_points(
             collection_name=collection_name,
             query=dense_query.query,
@@ -187,9 +174,13 @@ async def hybrid_search_with_retry(
             score_threshold=score_threshold,
         )
 
+        # Execute sparse vector search
         sparse_response = await qdrant_client.query_points(
             collection_name=collection_name,
-            query=sparse_query.query,
+            query=models.SparseVector(
+                name="sparse",
+                vector=sparse_vector,
+            ),
             limit=limit,
             query_filter=query_filter,
             with_payload=True,
@@ -690,9 +681,20 @@ async def search_image_embeddings(
     )
 
     try:
+        query_request = models.QueryRequest(
+            query=models.Vector(
+                name="image",
+                vector=query_vector,
+            ),
+            limit=limit,
+            query_filter=query_filter,
+            with_payload=True,
+            score_threshold=score_threshold,
+        )
+
         response = await qdrant_client.query_points(
             collection_name=collection_name,
-            query_vector=query_vector,
+            query=query_request.query,
             limit=limit,
             query_filter=query_filter,
             with_payload=True,

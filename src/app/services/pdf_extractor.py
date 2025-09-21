@@ -119,8 +119,13 @@ class PDFExtractor:
         for i, img in enumerate(images):
             xref = img[0]
             try:
-                image_info = fitz_page.get_image_info()[i]
-                bbox = image_info["bbox"]
+                # Get image info safely
+                image_infos = fitz_page.get_image_info()
+                if i >= len(image_infos):
+                    continue
+
+                image_info = image_infos[i]
+                bbox = image_info.get("bbox", [0, 0, 100, 100])
 
                 # Bild speichern
                 pix = fitz.Pixmap(fitz_page.parent, xref)
@@ -204,7 +209,9 @@ class PDFExtractor:
                     image_info = {
                         "file_path": element_data["file_path"],
                         "filename": element_data["filename"],
-                        "page_number": element_data["page_number"],
+                        "page_number": page_data[
+                            "page_number"
+                        ],  # Korrigiert: page_number aus page_data
                         "bbox": element_data["bbox"],
                         "metadata": element_data.get("image_metadata", {}),
                         "document_id": Path(pdf_path).stem,

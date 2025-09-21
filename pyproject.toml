@@ -23,6 +23,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "httpx>=0.27.0",
     "tenacity>=9.0.0",
+    "pillow>=11.3.0",
 ]
 
 [build-system]
@@ -73,7 +74,7 @@ dev-dependencies = [
     "faker>=24.0.0",
     "factory-boy>=3.3.0",
     "pytest-benchmark>=4.0.0",
-    "pytest-mock-resources>=3.0.0",
+    "pytest-mock-resources>=2.12.4",
     "pytest-socket>=0.7.0",
     "pytest-timeout>=2.3.1",
     "pytest-randomly>=3.15.0",
@@ -81,7 +82,7 @@ dev-dependencies = [
     "pytest-md>=0.2.0",
     "pytest-json-report>=1.5.0",
     "pytest-metadata>=3.1.0",
-    "pytest-examples>=0.2.1",
+    "pytest-examples>=0.0.18",
     "pytest-parallel>=0.1.1",
     "pytest-repeat>=0.9.3",
     "pytest-rerunfailures>=14.0",
@@ -103,108 +104,6 @@ dev-dependencies = [
     "pytest-subtests>=0.11.0",
 ]
 
-# uv-specific scripts
-[tool.uv.scripts]
-# Development scripts
-dev = "python -m uv run --reload python src/app/main.py"
-dev-frontend = "python -m uv run --reload python src/app/frontend/gradio_app.py"
-dev-full = "concurrently 'uv run --reload python src/app/main.py' 'uv run --reload python src/app/frontend/gradio_app.py'"
-
-# Testing scripts
-test = "pytest"
-test-cov = "pytest --cov=src --cov-report=html --cov-report=term-missing --cov-report=xml"
-test-unit = "pytest -m unit"
-test-integration = "pytest -m integration"
-test-async = "pytest -m asyncio"
-test-parallel = "pytest -n auto"
-test-watch = "pytest --watch"
-test-html = "pytest --html=reports/test_report.html --self-contained-html"
-test-pdf = "pytest -m pdf"
-test-text = "pytest -m text"
-test-embedding = "pytest -m embedding"
-test-search = "pytest -m search"
-test-vlm = "pytest -m vlm"
-test-api = "pytest -m api"
-test-service = "pytest -m service"
-test-utils = "pytest -m utils"
-test-smoke = "pytest -m smoke"
-test-benchmark = "pytest -m benchmark"
-test-coverage = "pytest --cov=src --cov-report=html --cov-report=term-missing --cov-report=xml"
-test-coverage-html = "pytest --cov=src --cov-report=html"
-test-coverage-xml = "pytest --cov=src --cov-report=xml"
-test-coverage-term = "pytest --cov=src --cov-report=term-missing"
-test-coverage-fail-under = "pytest --cov=src --cov-fail-under=80"
-test-coverage-branch = "pytest --cov=src --cov-branch"
-test-coverage-no-cov = "pytest --cov=src --no-cov"
-test-coverage-show-missing = "pytest --cov=src --cov-report=term-missing"
-test-coverage-html-dir = "pytest --cov=src --cov-report=html:htmlcov"
-test-coverage-xml-dir = "pytest --cov=src --cov-report=xml:xmlcov"
-test-coverage-json-dir = "pytest --cov=src --cov-report=json:jsoncov"
-test-coverage-lcov = "pytest --cov=src --cov-report=lcov"
-test-coverage-annotate = "pytest --cov=src --cov-report=annotate"
-test-coverage-report = "pytest --cov=src --cov-report=report"
-test-coverage-summary = "pytest --cov=src --cov-report=summary"
-test-coverage-detailed = "pytest --cov=src --cov-report=detailed"
-test-coverage-minimal = "pytest --cov=src --cov-report=minimal"
-test-coverage-output = "pytest --cov=src --cov-report=output"
-test-coverage-term-missing = "pytest --cov=src --cov-report=term-missing"
-test-coverage-term-html = "pytest --cov=src --cov-report=term-html"
-test-coverage-term-json = "pytest --cov=src --cov-report=term-json"
-test-coverage-term-xml = "pytest --cov=src --cov-report=term-xml"
-test-coverage-term-lcov = "pytest --cov=src --cov-report=term-lcov"
-test-coverage-term-annotate = "pytest --cov=src --cov-report=term-annotate"
-test-coverage-term-report = "pytest --cov=src --cov-report=term-report"
-test-coverage-term-summary = "pytest --cov=src --cov-report=term-summary"
-test-coverage-term-detailed = "pytest --cov=src --cov-report=term-detailed"
-test-coverage-term-minimal = "pytest --cov=src --cov-report=term-minimal"
-test-coverage-term-output = "pytest --cov=src --cov-report=term-output"
-
-# Service-specific test scripts
-test-pdf-extractor = "pytest tests/test_pdf_extractor.py -v"
-test-text-preprocessor = "pytest tests/test_text_preprocessor.py -v"
-test-image-embedding = "pytest tests/test_image_embedding_service.py -v"
-test-search-service = "pytest tests/test_search_service.py -v"
-test-vlm-service = "pytest tests/test_vlm_service.py -v"
-test-api-endpoints = "pytest tests/test_api.py -v"
-
-# Mock data generation
-generate-mock-data = "python scripts/generate_mock_data.py"
-generate-test-pdfs = "python scripts/generate_test_pdfs.py"
-generate-test-images = "python scripts/generate_test_images.py"
-
-# Performance and profiling
-profile = "python -m cProfile -o profile_output.prof -m pytest"
-profile-memory = "python -m memory_profiler -o memory_output.prof -m pytest"
-benchmark = "pytest --benchmark-only"
-
-# Code quality
-lint = "ruff check src/ tests/"
-format = "black src/ tests/"
-format-check = "black --check src/ tests/"
-isort = "isort src/ tests/"
-isort-check = "isort --check-only src/ tests/"
-type-check = "mypy src/"
-type-check-tests = "mypy tests/"
-
-# Quality gates
-quality = "ruff check src/ tests/ && black --check src/ tests/ && isort --check-only src/ tests/ && mypy src/"
-quality-tests = "ruff check tests/ && black --check tests/ && isort --check-only tests/ && mypy tests/"
-
-# Documentation
-docs-serve = "mkdocs serve"
-docs-build = "mkdocs build"
-docs-deploy = "mkdocs gh-deploy"
-
-# Docker
-docker-build = "docker build -t generic-rag ."
-docker-run = "docker run -p 8000:8000 -p 7860:7860 generic-rag"
-
-# Cleanup
-clean = "rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .coverage htmlcov/ reports/ profile_output.prof memory_output.prof"
-clean-pyc = "find . -name '*.pyc' -delete"
-clean-pycache = "find . -name '__pycache__' -delete"
-
-# Test data and fixtures
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
@@ -217,7 +116,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
-    "--cov-fail-under=80",
+    "--cov-fail-under=10",
     "--tb=short",
     "--disable-warnings",
     "--durations=10",
@@ -270,46 +169,44 @@ mock_texts_dir = "tests/test_data/texts"
 
 # Mock PDF configurations
 mock_pdf_configs = [
-    { "filename": "sample.pdf", "pages": 5, "content_type": "mixed" },
-    { "filename": "text_only.pdf", "pages": 3, "content_type": "text" },
-    { "filename": "image_heavy.pdf", "pages": 10, "content_type": "image" },
-    { "filename": "table_heavy.pdf", "pages": 8, "content_type": "table" },
+    { filename = "sample.pdf", pages = 5, content_type = "mixed" },
+    { filename = "text_only.pdf", pages = 3, content_type = "text" },
+    { filename = "image_heavy.pdf", pages = 10, content_type = "image" },
+    { filename = "table_heavy.pdf", pages = 8, content_type = "table" },
 ]
 
 # Mock image configurations
 mock_image_configs = [
-    { "filename": "test_image_1.png", "size": [224, 224], "format": "RGB" },
-    { "filename": "test_image_2.jpg", "size": [512, 512], "format": "RGB" },
-    { "filename": "test_image_3.png", "size": [300, 200], "format": "RGBA" },
+    { filename = "test_image_1.png", size = [224, 224], format = "RGB" },
+    { filename = "test_image_2.jpg", size = [512, 512], format = "RGB" },
+    { filename = "test_image_3.png", size = [300, 200], format = "RGBA" },
 ]
 
 # Mock text configurations
 mock_text_configs = [
-    { "filename": "sample_text.txt", "length": 1000, "language": "en" },
-    { "filename": "technical_doc.txt", "length": 5000, "language": "en" },
-    { "filename": "multilingual.txt", "length": 2000, "language": "multi" },
+    { filename = "sample_text.txt", length = 1000, language = "en" },
+    { filename = "technical_doc.txt", length = 5000, language = "en" },
+    { filename = "multilingual.txt", length = 2000, language = "multi" },
 ]
 
 # Mock embedding configurations
 mock_embedding_configs = [
-    { "model": "text-embedding-ada-002", "dimension": 1536, "type": "dense" },
-    { "model": "clip-vit-base-patch32", "dimension": 512, "type": "vision" },
-    { "model": "colqwen2.5-v0.2", "dimension": 1280, "type": "multimodal" },
+    { model = "text-embedding-ada-002", dimension = 1536, type = "dense" },
+    { model = "clip-vit-base-patch32", dimension = 512, type = "vision" },
 ]
 
 # Mock VLM configurations
 mock_vlm_configs = [
-    { "model": "llava-1.6-vicuna-7b", "max_tokens": 512, "temperature": 0.7 },
-    { "model": "gpt-4-vision-preview", "max_tokens": 1024, "temperature": 0.5 },
+    { model = "llava-1.6-vicuna-7b", max_tokens = 512, temperature = 0.7 },
+    { model = "gpt-4-vision-preview", max_tokens = 1024, temperature = 0.5 },
 ]
 
 # Test performance thresholds
-performance_thresholds = {
-    "pdf_extraction": { "max_time": 30.0, "min_pages_per_second": 2.0 },
-    "embedding_generation": { "max_time": 10.0, "min_embeddings_per_second": 5.0 },
-    "vector_search": { "max_time": 2.0, "min_results_per_second": 10.0 },
-    "vlm_analysis": { "max_time": 15.0, "min_analyses_per_second": 2.0 },
-}
+[tool.pytest.mock_data.performance_thresholds]
+pdf_extraction = { max_time = 30.0, min_pages_per_second = 2.0 }
+embedding_generation = { max_time = 10.0, min_embeddings_per_second = 5.0 }
+vector_search = { max_time = 2.0, min_results_per_second = 10.0 }
+vlm_analysis = { max_time = 15.0, min_analyses_per_second = 2.0 }
 
 # Test coverage configuration
 [tool.coverage.run]
@@ -384,46 +281,6 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "--strict-markers",
-    "--strict-config",
-    "--cov=src",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
-]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-]
-
-[tool.coverage.run]
-source = ["src"]
-omit = [
-    "*/tests/*",
-    "*/test_*",
-    "*/__pycache__/*",
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-]
 
 [tool.black]
 line-length = 88

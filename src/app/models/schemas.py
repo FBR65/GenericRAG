@@ -42,8 +42,8 @@ class Reference(BaseModel):
     page: int = Field(..., description="Page number")
 
 
-class SearchResult(BaseModel):
-    """Search result for query endpoint with hybrid search support"""
+class SearchResultItem(BaseModel):
+    """Individual search result item"""
 
     id: int = Field(..., description="Search result ID")
     score: float = Field(..., description="Search result score")
@@ -68,6 +68,16 @@ class SearchResult(BaseModel):
     )
 
 
+class SearchResult(BaseModel):
+    """Search result for query endpoint with hybrid search support"""
+
+    items: List[SearchResultItem] = Field(
+        ..., description="List of search result items"
+    )
+    total: int = Field(..., description="Total number of results")
+    query: str = Field(..., description="Original search query")
+
+
 class IngestResult(BaseModel):
     """Result of a single file ingestion"""
 
@@ -83,15 +93,25 @@ class IngestResponse(BaseModel):
     results: List[IngestResult] = Field(..., description="List of ingestion results")
 
 
+class VLMRequest(BaseModel):
+    """VLM-specific request information"""
+
+    prompt: str = Field(..., description="Prompt for VLM analysis")
+    image_path: str = Field(..., description="Path to the image to analyze")
+    context: str = Field("", description="Additional context for analysis")
+
+
 class VLMResponse(BaseModel):
     """VLM-specific response information"""
 
-    model_used: str = Field(..., description="VLM model used for generation")
-    context_length: int = Field(..., description="Length of context used")
+    response: str = Field(..., description="Generated response from VLM")
+    confidence_score: float = Field(..., description="Confidence score of the response")
     processing_time: float = Field(..., description="Time taken to generate response")
-    images_used: bool = Field(False, description="Whether images were used in context")
-    sources_referenced: List[int] = Field(
-        default_factory=list, description="List of source IDs referenced"
+    model_used: str = Field(..., description="VLM model used for generation")
+    context_length: Optional[int] = Field(None, description="Context length used")
+    images_used: Optional[bool] = Field(None, description="Whether images were used")
+    sources_referenced: Optional[List[int]] = Field(
+        None, description="List of source IDs referenced"
     )
 
 
@@ -115,6 +135,10 @@ class QueryResponse(BaseModel):
         None, description="VLM generation information"
     )
     response_type: str = Field("vlm", description="Type of response generation")
+    vlm_used: bool = Field(False, description="Whether VLM was used")
+    image_context_included: bool = Field(
+        False, description="Whether image context was included"
+    )
 
 
 class QueryResult(BaseModel):

@@ -32,34 +32,16 @@ router = APIRouter()
 
 @router.post("/query", response_model=QueryResponse)
 async def query_rag(
-    query: str,
+    request: dict,
     qdrant_client: QdrantClientDep,
     image_storage: ImageStorageDep,
     settings: SettingsDep,
-    top_k: int = Query(5, ge=1, le=20),
-    score_threshold: Optional[float] = Query(0.5, ge=0.0, le=1.0),
-    session_id: Optional[str] = None,
-    search_strategy: str = Query("hybrid", regex="^(text_only|image_only|hybrid)$"),
-    alpha: float = Query(0.5, ge=0.0, le=1.0),
-    metadata_filters: Optional[Dict[str, Any]] = None,
-    include_images: bool = Query(True),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=50),
 ) -> QueryResponse:
     """
     Query the RAG system with hybrid search support
 
     Args:
-        query: User query
-        session_id: Optional session identifier
-        top_k: Number of results to return
-        score_threshold: Minimum score threshold
-        search_strategy: Search strategy ("text_only", "image_only", "hybrid")
-        alpha: Weight for dense vs sparse search (0.0-1.0)
-        metadata_filters: Additional metadata filters (bbox, page_number, type)
-        include_images: Whether to include image results
-        page: Page number for pagination
-        page_size: Number of results per page
+        request: JSON request containing query and parameters
         qdrant_client: Qdrant client
         image_storage: Image storage service
         settings: Application settings
@@ -67,12 +49,22 @@ async def query_rag(
     Returns:
         Query response with results
     """
+    # Extract parameters from request
+    query = request.get("query", "")
+    session_id = request.get("session_id", str(uuid.uuid4()))
+    top_k = request.get("top_k", 5)
+    score_threshold = request.get("score_threshold", 0.5)
+    search_strategy = request.get("search_strategy", "hybrid")
+    alpha = request.get("alpha", 0.5)
+    metadata_filters = request.get("metadata_filters", None)
+    include_images = request.get("include_images", True)
+    page = request.get("page", 1)
+    page_size = request.get("page_size", 10)
+    use_vlm = request.get("use_vlm", False)
+    use_images = request.get("use_images", True)
+
     if not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-
-    # Generate session ID if not provided
-    if not session_id:
-        session_id = str(uuid.uuid4())
 
     try:
         # Initialize search service
@@ -101,46 +93,55 @@ async def query_rag(
             page_size=page_size,
         )
 
-        # Generate response using VLM
-        logger.info("Generating response using VLM")
-        vlm_service = VLMService()
+        # Generate response using VLM if requested
+        response_text = ""
+        vlm_info = None
 
-        import time
+        if use_vlm:
+            logger.info("Generating response using VLM")
+            vlm_service = VLMService()
 
-        start_time = time.time()
+            import time
 
-        try:
-            response_text = await vlm_service.generate_response_with_vlm(
-                query=query,
-                search_results=search_results,
-                use_images=True,
-                max_context_length=4000,
-            )
+            start_time = time.time()
 
-            processing_time = time.time() - start_time
+            try:
+                vlm_response = await vlm_service.generate_response_with_vlm(
+                    query=query,
+                    search_results=search_results,
+                    use_images=use_images,
+                    max_context_length=4000,
+                )
 
-            # Create VLM response info
-            vlm_info = VLMResponse(
-                model_used="gemma3:latest",
-                context_length=4000,
-                processing_time=processing_time,
-                images_used=True,
-                sources_referenced=[result.id for result in search_results[:5]],
-            )
+                processing_time = time.time() - start_time
+                response_text = vlm_response.response
 
-        except Exception as e:
-            logger.error(f"Error generating VLM response: {e}")
-            # Fallback response
-            response_text = f"⚠️ I encountered an error while processing your request with the Vision Language Model. Please try again or rephrase your question. Error: {str(e)}"
+                # Use the VLM response from the service
+                vlm_info = vlm_response
 
-            # Create error VLM response info
-            vlm_info = VLMResponse(
-                model_used="gemma3:latest",
-                context_length=4000,
-                processing_time=time.time() - start_time,
-                images_used=False,
-                sources_referenced=[result.id for result in search_results[:5]],
-            )
+            except Exception as e:
+                logger.error(f"Error generating VLM response: {e}")
+                # Fallback response
+                response_text = f"⚠️ I encountered an error while processing your request with the Vision Language Model. Please try again or rephrase your question. Error: {str(e)}"
+
+                # Create error VLM response info
+                vlm_info = VLMResponse(
+                    response=response_text,
+                    confidence_score=0.0,
+                    processing_time=time.time() - start_time,
+                    model_used="gemma3:latest",
+                    context_length=4000,
+                    images_used=False,
+                    sources_referenced=[result.id for result in search_results[:5]],
+                )
+        else:
+            # Generate simple response without VLM
+            if search_results:
+                response_text = (
+                    f"Found {len(search_results)} results for your query '{query}'."
+                )
+            else:
+                response_text = f"No results found for your query '{query}'."
 
         return QueryResponse(
             query=query,
@@ -153,7 +154,9 @@ async def query_rag(
             page=page,
             page_size=page_size,
             vlm_info=vlm_info,
-            response_type="vlm",
+            response_type="vlm" if use_vlm else "simple",
+            vlm_used=use_vlm,
+            image_context_included=use_images,
         )
 
     except Exception as e:
@@ -163,34 +166,16 @@ async def query_rag(
 
 @router.post("/query-stream")
 async def query_rag_stream(
-    query: str,
+    request: dict,
     qdrant_client: QdrantClientDep,
     image_storage: ImageStorageDep,
     settings: SettingsDep,
-    top_k: int = Query(5, ge=1, le=20),
-    score_threshold: Optional[float] = Query(0.5, ge=0.0, le=1.0),
-    session_id: Optional[str] = None,
-    search_strategy: str = Query("hybrid", regex="^(text_only|image_only|hybrid)$"),
-    alpha: float = Query(0.5, ge=0.0, le=1.0),
-    metadata_filters: Optional[Dict[str, Any]] = None,
-    include_images: bool = Query(True),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=50),
 ):
     """
     Query the RAG system with streaming response and hybrid search support
 
     Args:
-        query: User query
-        session_id: Optional session identifier
-        top_k: Number of results to return
-        score_threshold: Minimum score threshold
-        search_strategy: Search strategy ("text_only", "image_only", "hybrid")
-        alpha: Weight for dense vs sparse search (0.0-1.0)
-        metadata_filters: Additional metadata filters (bbox, page_number, type)
-        include_images: Whether to include image results
-        page: Page number for pagination
-        page_size: Number of results per page
+        request: JSON request containing query and parameters
         qdrant_client: Qdrant client
         image_storage: Image storage service
         settings: Application settings
@@ -198,13 +183,23 @@ async def query_rag_stream(
     Yields:
         Server-sent events with streaming response
     """
+    # Extract parameters from request
+    query = request.get("query", "")
+    session_id = request.get("session_id", str(uuid.uuid4()))
+    top_k = request.get("top_k", 5)
+    score_threshold = request.get("score_threshold", 0.5)
+    search_strategy = request.get("search_strategy", "hybrid")
+    alpha = request.get("alpha", 0.5)
+    metadata_filters = request.get("metadata_filters", None)
+    include_images = request.get("include_images", True)
+    page = request.get("page", 1)
+    page_size = request.get("page_size", 10)
+    use_vlm = request.get("use_vlm", False)
+    use_images = request.get("use_images", True)
+
     if not query.strip():
         yield f"data: {json.dumps({'error': 'Query cannot be empty'})}\n\n"
         return
-
-    # Generate session ID if not provided
-    if not session_id:
-        session_id = str(uuid.uuid4())
 
     try:
         # Initialize search service
@@ -235,32 +230,42 @@ async def query_rag_stream(
             page_size=page_size,
         )
 
-        # Generate response using VLM with streaming
-        yield 'data: {"status": "generating", "message": "Generating response with VLM..."}\n\n'
+        # Generate response using VLM with streaming if requested
+        response_text = ""
+        if use_vlm:
+            yield 'data: {"status": "generating", "message": "Generating response with VLM..."}\n\n'
 
-        # Generate VLM response
-        vlm_service = VLMService()
-        import time
+            # Generate VLM response
+            vlm_service = VLMService()
+            import time
 
-        start_time = time.time()
+            start_time = time.time()
 
-        try:
-            response_text = await vlm_service.generate_response_with_vlm(
-                query=query,
-                search_results=search_results,
-                use_images=True,
-                max_context_length=4000,
-            )
+            try:
+                response_text = await vlm_service.generate_response_with_vlm(
+                    query=query,
+                    search_results=search_results,
+                    use_images=use_images,
+                    max_context_length=4000,
+                )
 
-            processing_time = time.time() - start_time
+                processing_time = time.time() - start_time
 
-            # Add processing info to response
-            response_text = f"🤖 **VLM Response** (Processing time: {processing_time:.2f}s)\n\n{response_text}"
+                # Add processing info to response
+                response_text = f"🤖 **VLM Response** (Processing time: {processing_time:.2f}s)\n\n{response_text}"
 
-        except Exception as e:
-            logger.error(f"Error generating VLM response: {e}")
-            # Fallback response
-            response_text = f"⚠️ I encountered an error while processing your request with the Vision Language Model. Please try again or rephrase your question. Error: {str(e)}"
+            except Exception as e:
+                logger.error(f"Error generating VLM response: {e}")
+                # Fallback response
+                response_text = f"⚠️ I encountered an error while processing your request with the Vision Language Model. Please try again or rephrase your question. Error: {str(e)}"
+        else:
+            # Generate simple response without VLM
+            if search_results:
+                response_text = (
+                    f"Found {len(search_results)} results for your query '{query}'."
+                )
+            else:
+                response_text = f"No results found for your query '{query}'."
 
         # Stream the response in chunks
         chunks = _split_response_into_chunks(response_text)
@@ -283,6 +288,8 @@ async def query_rag_stream(
             "metadata_filters": metadata_filters,
             "page": page,
             "page_size": page_size,
+            "vlm_used": use_vlm,
+            "image_context_included": use_images,
         }
 
         yield f"data: {json.dumps(final_response)}\n\n"

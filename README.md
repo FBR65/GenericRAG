@@ -1,12 +1,11 @@
-
-# GenericRAG - Advanced ColPali RAG System
+# GenericRAG - Advanced RAG System
 
 A comprehensive Retrieval-Augmented Generation system featuring advanced document processing, multi-modal embeddings, hybrid search capabilities, and Vision-Language Model integration with DSPy/GEPA optimization.
 
 ## 🚀 New Features & Enhancements
 
 ### Latest Updates
-- **Enhanced PDF Processing**: Improved text, table, and image extraction with ColPali integration
+- **Enhanced PDF Processing**: Improved text, table, and image extraction
 - **Advanced Multi-Modal Search**: Hybrid search combining text, image, and table embeddings
 - **Vision-Language Model Integration**: Comprehensive VLM capabilities for image analysis
 - **DSPy/GEPA Optimization**: Gradient-based Evolutionary Prompt Adaptation for response generation
@@ -16,7 +15,7 @@ A comprehensive Retrieval-Augmented Generation system featuring advanced documen
 - **Better Error Handling**: Robust error handling and recovery mechanisms
 
 ### Core Functionality
-- **Document Processing**: Advanced PDF ingestion using ColPali (vidore/colqwen2.5-v0.2)
+- **Document Processing**: Advanced PDF ingestion with text, table, and image extraction
 - **Multi-Modal Embeddings**: Dense and sparse embeddings for text and images
 - **Hybrid Search**: Combined dense and sparse vector search with configurable weights
 - **Vision-Language Models**: Integrated VLM capabilities for image analysis
@@ -201,8 +200,7 @@ uv run dev-full
 | | `QDRANT_COLLECTION_NAME` | Qdrant collection name | `generic_rag_collection` |
 | | `QDRANT_API_KEY` | Qdrant API key | (optional) |
 | | `QDRANT_TIMEOUT` | Qdrant request timeout | `30` |
-| **Document Processing** | `COLPALI_MODEL_NAME` | ColPali model name | `vidore/colqwen2.5-v0.2` |
-| | `PDF_EXTRACTOR_CONFIG` | PDF extractor configuration | `{"max_pages": 100, "dpi": 300, "extract_images": true, "extract_tables": true}` |
+| **Document Processing** | `PDF_EXTRACTOR_CONFIG` | PDF extractor configuration | `{"max_pages": 100, "dpi": 300, "extract_images": true, "extract_tables": true}` |
 | | `PDF_MAX_FILE_SIZE` | Maximum PDF file size (MB) | `50` |
 | **Text Processing** | `TEXT_PREPROCESSOR_CONFIG` | Text preprocessor config | `{"chunk_size": 512, "overlap": 50, "max_chunk_tokens": 1000}` |
 | | `EMBEDDING_MODEL` | Embedding model name | `text-embedding-ada-002` |
@@ -263,7 +261,6 @@ QDRANT_COLLECTION_NAME=generic_rag_collection
 QDRANT_API_KEY=
 
 # Document Processing
-COLPALI_MODEL_NAME=vidore/colqwen2.5-v0.2
 PDF_MAX_FILE_SIZE=50
 
 # Text Processing
@@ -349,22 +346,17 @@ performance_thresholds = {
 
 The system uses multiple advanced models for different tasks:
 
-1. **ColPali Model**: `vidore/colqwen2.5-v0.2`
-   - Used for document image processing and embedding generation
-   - Processes entire PDF pages as images
-   - Generates multi-modal embeddings for text and images
-
-2. **CLIP Model**: `clip-vit-base-patch32`
+1. **CLIP Model**: `clip-vit-base-patch32`
    - Used for image embedding generation
    - Creates 512-dimensional embeddings for visual content
    - Supports similarity search between images and text
 
-3. **VLM Model**: `llava-1.6-vicuna-7b`
+2. **VLM Model**: `llava-1.6-vicuna-7b`
    - Used for vision-language understanding and image analysis
    - Can describe and analyze image content
    - Supports complex visual reasoning tasks
 
-4. **Gemma Model**: `google/gemma-3-27b-it`
+3. **Gemma Model**: `google/gemma-3-27b-it`
    - Used for response generation via DSPy/GEPA optimization
    - Accessible via local API at http://your_url/v1
    - Handles final response synthesis and reasoning
@@ -510,7 +502,6 @@ GenericRAG/
 │       │   └── image_storage.py      # Local image storage
 │       ├── utils/
 │       │   ├── __init__.py
-│       │   ├── colpali_utils.py      # ColPali utilities
 │       │   ├── qdrant_utils.py       # Qdrant utilities
 │       │   └── embedding_utils.py    # Embedding utilities
 │       ├── __init__.py

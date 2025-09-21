@@ -9,70 +9,7 @@ from PIL import Image
 import numpy as np
 import asyncio
 
-from src.app.utils import colpali_utils, qdrant_utils
-
-
-class TestColPaliUtils:
-    """Test ColPali utility functions"""
-
-    @pytest.fixture
-    def mock_model(self):
-        """Mock ColPali model"""
-        return Mock()
-
-    @pytest.fixture
-    def mock_processor(self):
-        """Mock ColPali processor"""
-        return Mock()
-
-    @patch("src.app.utils.colpali_utils.process_query")
-    def test_process_query_success(
-        self, mock_process_query, mock_model, mock_processor
-    ):
-        """Test successful query processing"""
-        # Mock the return value
-        mock_process_query.return_value = torch.tensor([0.1] * 768)
-
-        # Test processing
-        result = colpali_utils.process_query(
-            model=mock_model, processor=mock_processor, query="test query"
-        )
-
-        assert isinstance(result, torch.Tensor)
-        assert result.shape == (768,)
-
-    @patch("src.app.utils.colpali_utils.process_query")
-    def test_process_query_empty_query(
-        self, mock_process_query, mock_model, mock_processor
-    ):
-        """Test processing empty query"""
-        # Mock the function to raise ValueError for empty query
-        mock_process_query.side_effect = ValueError("Query cannot be empty")
-
-        with pytest.raises(ValueError):
-            colpali_utils.process_query(
-                model=mock_model, processor=mock_processor, query=""
-            )
-
-    def test_process_query_invalid_model(self):
-        """Test processing with invalid model"""
-        mock_processor = Mock()
-        mock_processor.return_value = Mock(
-            pixel_values=Mock(tolist=lambda: [[0.1] * 768])
-        )
-        with pytest.raises(Exception):
-            colpali_utils.process_query(
-                model=None, processor=mock_processor, query="test query"
-            )
-
-    def test_process_query_invalid_processor(self):
-        """Test processing with invalid processor"""
-        mock_model = Mock()
-        mock_model.device = "cpu"
-        with pytest.raises(Exception):
-            colpali_utils.process_query(
-                model=mock_model, processor=None, query="test query"
-            )
+from src.app.utils import qdrant_utils
 
 
 class TestQdrantUtils:
@@ -223,58 +160,6 @@ class TestQdrantUtils:
         assert result.points[1].score >= 0.6
 
 
-class TestImageProcessing:
-    """Test image processing utilities"""
-
-    def test_create_thumbnail(self):
-        """Test thumbnail creation"""
-        # Create test image
-        image = Image.new("RGB", (1000, 1000), color="red")
-
-        # Create thumbnail
-        thumbnail = colpali_utils.create_thumbnail(image, size=224)
-
-        assert thumbnail.size == (224, 224)
-        assert thumbnail.mode == "RGB"
-
-    def test_create_thumbnail_square(self):
-        """Test thumbnail creation with square aspect ratio"""
-        # Create test image
-        image = Image.new("RGB", (500, 300), color="blue")
-
-        # Create thumbnail
-        thumbnail = colpali_utils.create_thumbnail(image, size=224)
-
-        assert thumbnail.size == (224, 224)
-        assert thumbnail.mode == "RGB"
-
-    def test_image_to_base64(self):
-        """Test image to base64 conversion"""
-        # Create test image
-        image = Image.new("RGB", (100, 100), color="green")
-
-        # Convert to base64
-        base64_str = colpali_utils.image_to_base64(image)
-
-        assert isinstance(base64_str, str)
-        assert base64_str.startswith("data:image/png;base64,")
-        assert len(base64_str) > 0
-
-    def test_base64_to_image(self):
-        """Test base64 to image conversion"""
-        # Create test image
-        original_image = Image.new("RGB", (100, 100), color="yellow")
-
-        # Convert to base64
-        base64_str = colpali_utils.image_to_base64(original_image)
-
-        # Convert back to image
-        converted_image = colpali_utils.base64_to_image(base64_str)
-
-        assert converted_image.size == original_image.size
-        assert converted_image.mode == original_image.mode
-
-
 class TestNewUtilityFunctions:
     """Test utility functions for new services"""
 
@@ -293,7 +178,7 @@ class TestNewUtilityFunctions:
         preprocessor = TextPreprocessor()
         chunks = preprocessor._process_text_elements(mock_elements, 1)
 
-        assert len(chunks) == 3
+        assert len(chunks) == 2  # First two lines should be grouped together
         assert all("content" in chunk for chunk in chunks)
         assert all("type" in chunk for chunk in chunks)
         assert all("page_number" in chunk for chunk in chunks)
@@ -339,14 +224,21 @@ class TestNewUtilityFunctions:
     def test_text_merging(self):
         """Test text merging utility"""
         from src.app.services.text_preprocessor import TextPreprocessor
+        from src.app.models.schemas import ExtractedElement, ElementType
 
         preprocessor = TextPreprocessor()
 
         # Create mock elements
         mock_elements = [
-            Mock(content="First part"),
-            Mock(content="Second part"),
-            Mock(content="Third part"),
+            ExtractedElement(
+                type=ElementType.TEXT, bbox=[0, 0, 100, 20], content="First part"
+            ),
+            ExtractedElement(
+                type=ElementType.TEXT, bbox=[0, 25, 100, 45], content="Second part"
+            ),
+            ExtractedElement(
+                type=ElementType.TEXT, bbox=[0, 50, 100, 70], content="Third part"
+            ),
         ]
 
         merged_text = preprocessor._merge_text_elements(mock_elements)

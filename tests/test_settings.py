@@ -18,7 +18,7 @@ class TestSettings:
         old_env = {}
         for key in list(os.environ.keys()):
             if key.startswith(
-                ("APP_", "GRADIO_", "QDRANT_", "COLPALI_", "LLM_", "IMAGE_", "DSPY_")
+                ("APP_", "GRADIO_", "QDRANT_", "LLM_", "IMAGE_", "DSPY_")
             ):
                 old_env[key] = os.environ[key]
                 del os.environ[key]
@@ -32,7 +32,6 @@ class TestSettings:
             assert settings.gradio.port == 7860
             assert settings.qdrant.qdrant_url == "http://10.84.0.7:6333"
             assert settings.qdrant.collection_name == "generic_rag_collection"
-            assert settings.colpali.colpali_model_name == "vidore/colqwen2.5-v0.2"
             assert settings.storage.image_storage_path == "./data/images"
             assert settings.storage.temp_storage_path == "./data/temp"
             assert settings.storage.dspy_cache_path == "./data/dspy_cache"
@@ -55,7 +54,6 @@ class TestSettings:
             "GRADIO_PORT": "7861",
             "QDRANT_URL": "http://localhost:6333",
             "QDRANT_COLLECTION_NAME": "test_collection",
-            "COLPALI_MODEL_NAME": "test/model",
             "IMAGE_STORAGE_PATH": "/custom/images",
             "GEMMA_BASE_URL": "http://localhost:8114/v1",
             "GEMMA_API_KEY": "test_key",
@@ -85,7 +83,6 @@ class TestSettings:
             assert settings.gradio.port == 7861
             assert settings.qdrant.qdrant_url == "http://localhost:6333"
             assert settings.qdrant.collection_name == "test_collection"
-            assert settings.colpali.colpali_model_name == "test/model"
             assert settings.storage.image_storage_path == "/custom/images"
             assert settings.llm.gemma_base_url == "http://localhost:8114/v1"
             assert settings.llm.gemma_api_key == "test_key"
@@ -124,30 +121,6 @@ class TestQdrantSettings:
             assert settings.collection_name == "generic_rag_collection"
             assert settings.qdrant_url == "http://10.84.0.7:6333"
             assert settings.qdrant_api_key == ""
-        finally:
-            # Restore environment variables
-            for key, value in old_env.items():
-                os.environ[key] = value
-
-
-class TestColpaliSettings:
-    """Test ColPali-specific settings"""
-
-    def test_colpali_settings(self):
-        """Test ColPali settings"""
-        # Clear environment variables that might affect the test
-        old_env = {}
-        for key in list(os.environ.keys()):
-            if key.startswith(("COLPALI_",)):
-                old_env[key] = os.environ[key]
-                del os.environ[key]
-
-        try:
-            from src.app.settings import ColpaliSettings
-
-            settings = ColpaliSettings()
-
-            assert settings.colpali_model_name == "vidore/colqwen2.5-v0.2"
         finally:
             # Restore environment variables
             for key, value in old_env.items():

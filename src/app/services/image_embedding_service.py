@@ -10,7 +10,7 @@ from PIL import Image
 from qdrant_client.http import models as rest
 from qdrant_client.http.models import Distance, VectorParams
 
-from app.settings import get_settings
+from src.app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
