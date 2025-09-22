@@ -13,11 +13,42 @@ from src.app.api.lifespan import lifespan
 from src.app.settings import get_settings
 
 
+def setup_logging():
+    """Setup logging configuration"""
+    logger.remove()  # Remove default handler
+    
+    # Create logs directory if it doesn't exist
+    import os
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Configure logger
+    logger.add(
+        os.path.join(log_dir, "app.log"),
+        rotation="10 MB",
+        retention="30 days",
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
+        colorize=False,
+    )
+    
+    # Add console logging for development
+    logger.add(
+        lambda msg: print(msg, end=""),
+        level="DEBUG",
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        colorize=True,
+    )
+
+
 @asynccontextmanager
 async def lifespan_manager(app: FastAPI):
     """Application lifespan manager"""
     import threading
 
+    # Setup logging
+    setup_logging()
+    
     thread_id = threading.get_ident()
     logger.info(f"[Lifespan Thread {thread_id}] Starting GenericRAG application...")
 
@@ -52,6 +83,28 @@ async def lifespan_manager(app: FastAPI):
 
     app.state.dspy_service = DSPyIntegrationService(
         settings, app.state.instructor_client
+    )
+
+    # Initialize BGE-M3 service
+    from src.app.services.bge_m3_service import BGE_M3_Service
+    
+    app.state.bge_m3_service = None
+    if hasattr(settings, 'bge_m3') and settings.bge_m3.model_name:
+        try:
+            app.state.bge_m3_service = BGE_M3_Service(settings)
+            logger.info(f"[Lifespan Thread {thread_id}] BGE-M3 service initialized successfully")
+        except Exception as e:
+            logger.error(f"[Lifespan Thread {thread_id}] Failed to initialize BGE-M3 service: {e}")
+    else:
+        logger.info(f"[Lifespan Thread {thread_id}] BGE-M3 service disabled in settings")
+
+    # Initialize Search Service with BGE-M3 support
+    from src.app.services.search_service import SearchService
+    
+    app.state.search_service = SearchService(
+        qdrant_client=app.state.qdrant_client,
+        image_storage=app.state.image_storage,
+        settings=settings,
     )
 
     logger.info(f"[Lifespan Thread {thread_id}] Application startup completed")
@@ -103,12 +156,23 @@ async def health_check():
     """Health check endpoint"""
     settings = get_settings()
 
+    # Check BGE-M3 service status
+    bge_m3_status = "disabled"
+    if hasattr(settings, 'bge_m3') and settings.bge_m3.model_name:
+        try:
+            from src.app.services.bge_m3_service import BGE_M3_Service
+            bge_m3_service = BGE_M3_Service(settings)
+            bge_m3_status = "healthy" if bge_m3_service else "unavailable"
+        except Exception:
+            bge_m3_status = "error"
+
     return {
         "status": "healthy",
         "version": "1.0.0",
         "services": {
             "qdrant": settings.qdrant.qdrant_url,
             "llm": settings.llm.student_model,
+            "bge_m3": bge_m3_status,
         },
     }
 

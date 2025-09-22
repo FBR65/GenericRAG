@@ -633,3 +633,248 @@ class TextPreprocessor:
             f"Verarbeitet {len(processed_chunks)} Chunks mit Dense und Sparse Embeddings"
         )
         return processed_chunks
+
+    async def process_chunks_with_bge_m3_embeddings(
+        self,
+        chunks: List[Dict[str, Any]],
+        include_dense: bool = True,
+        include_sparse: bool = True,
+        include_multivector: bool = True,
+        batch_size: int = 32,
+        cache_embeddings: bool = True,
+        session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Verarbeitet eine Liste von Chunks mit BGE-M3 Embeddings (dense, sparse, multivector)
+
+        Args:
+            chunks: Liste von Chunks ohne Embeddings
+            include_dense: Dense Embeddings generieren
+            include_sparse: Sparse Embeddings generieren
+            include_multivector: Multi-Vector Embeddings generieren
+            batch_size: Batch Größe für Verarbeitung
+            cache_embeddings: Embeddings cachen
+            session_id: Session ID für Caching
+
+        Returns:
+            Liste von Chunks mit BGE-M3 Embeddings
+        """
+        processed_chunks = []
+        
+        try:
+            # Importiere BGE-M3 Service
+            from src.app.services.bge_m3_service import BGE_M3_Service
+            
+            # Initialisiere BGE-M3 Service
+            bge_m3_service = BGE_M3_Service()
+            
+            if not bge_m3_service.is_available():
+                self.logger.warning("BGE-M3 Service nicht verfügbar, verwende Standard-Embeddings")
+                return await self.process_chunks_with_embeddings(chunks)
+            
+            self.logger.info(f"Verarbeite {len(chunks)} Chunks mit BGE-M3 Embeddings")
+            
+            # Verarbeite Chunks in Batches
+            for i in range(0, len(chunks), batch_size):
+                batch_chunks = chunks[i:i + batch_size]
+                batch_texts = [chunk["content"] for chunk in batch_chunks]
+                
+                try:
+                    # Generiere BGE-M3 Embeddings für den Batch
+                    batch_embeddings = await bge_m3_service.batch_generate_embeddings(
+                        texts=batch_texts,
+                        include_dense=include_dense,
+                        include_sparse=include_sparse,
+                        include_multivector=include_multivector,
+                        cache_embeddings=cache_embeddings,
+                        session_id=session_id
+                    )
+                    
+                    # Füge Embeddings zu den Chunks hinzu
+                    for j, chunk in enumerate(batch_chunks):
+                        chunk_with_embeddings = chunk.copy()
+                        
+                        # Füge Embeddings basierend auf Verfügbarkeit hinzu
+                        if j < len(batch_embeddings):
+                            embeddings = batch_embeddings[j]
+                            
+                            if include_dense and embeddings.get("dense"):
+                                chunk_with_embeddings["dense_vector"] = embeddings["dense"]
+                            else:
+                                chunk_with_embeddings["dense_vector"] = [0.0] * 1024
+                            
+                            if include_sparse and embeddings.get("sparse"):
+                                chunk_with_embeddings["sparse_vector"] = embeddings["sparse"]
+                            else:
+                                chunk_with_embeddings["sparse_vector"] = {}
+                            
+                            if include_multivector and embeddings.get("multivector"):
+                                chunk_with_embeddings["multivector"] = embeddings["multivector"]
+                            else:
+                                chunk_with_embeddings["multivector"] = []
+                            
+                            # Füge Fehlerinformationen hinzu
+                            if embeddings.get("errors"):
+                                chunk_with_embeddings["embedding_errors"] = embeddings["errors"]
+                        
+                        processed_chunks.append(chunk_with_embeddings)
+                        
+                except Exception as e:
+                    self.logger.error(f"Fehler bei der Batch-Verarbeitung {i//batch_size + 1}: {e}")
+                    # Fallback zur Standard-Verarbeitung für diesen Batch
+                    fallback_chunks = await self.process_chunks_with_embeddings(batch_chunks)
+                    processed_chunks.extend(fallback_chunks)
+            
+            self.logger.info(
+                f"Verarbeitet {len(processed_chunks)} Chunks mit BGE-M3 Embeddings "
+                f"(dense={include_dense}, sparse={include_sparse}, multivector={include_multivector})"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Fehler bei der BGE-M3 Verarbeitung: {e}")
+            # Fallback zur Standard-Verarbeitung
+            self.logger.info("Fallback zur Standard-Embedding-Verarbeitung")
+            processed_chunks = await self.process_chunks_with_embeddings(chunks)
+        
+        return processed_chunks
+
+    async def get_bge_m3_embeddings_for_text(
+        self,
+        text: str,
+        include_dense: bool = True,
+        include_sparse: bool = True,
+        include_multivector: bool = True,
+        cache_embeddings: bool = True,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generiert BGE-M3 Embeddings für einen einzelnen Text
+
+        Args:
+            text: Text für die Embeddings
+            include_dense: Dense Embeddings generieren
+            include_sparse: Sparse Embeddings generieren
+            include_multivector: Multi-Vector Embeddings generieren
+            cache_embeddings: Embeddings cachen
+            session_id: Session ID für Caching
+
+        Returns:
+            Dictionary mit Embeddings und Metadaten
+        """
+        try:
+            # Importiere BGE-M3 Service
+            from src.app.services.bge_m3_service import BGE_M3_Service
+            
+            # Initialisiere BGE-M3 Service
+            bge_m3_service = BGE_M3_Service()
+            
+            if not bge_m3_service.is_available():
+                self.logger.warning("BGE-M3 Service nicht verfügbar")
+                return {
+                    "dense": [0.0] * 1024,
+                    "sparse": {},
+                    "multivector": [],
+                    "errors": ["BGE-M3 Service nicht verfügbar"]
+                }
+            
+            # Generiere BGE-M3 Embeddings
+            embeddings = await bge_m3_service.generate_embeddings(
+                text=text,
+                include_dense=include_dense,
+                include_sparse=include_sparse,
+                include_multivector=include_multivector,
+                cache_embeddings=cache_embeddings,
+                session_id=session_id
+            )
+            
+            return embeddings
+            
+        except Exception as e:
+            self.logger.error(f"Fehler bei der BGE-M3 Embedding-Erzeugung: {e}")
+            return {
+                "dense": [0.0] * 1024,
+                "sparse": {},
+                "multivector": [],
+                "errors": [str(e)]
+            }
+
+    async def get_cached_embeddings(
+        self,
+        text: str,
+        session_id: Optional[str] = None,
+        embedding_type: str = "dense"
+    ) -> Optional[List[float]]:
+        """
+        Ruft gecachte Embeddings ab, falls verfügbar
+
+        Args:
+            text: Text für den Cache-Lookup
+            session_id: Session ID für Cache
+            embedding_type: Typ des Embeddings (dense, sparse, multivector)
+
+        Returns:
+            Gecachte Embeddings oder None, nicht gefunden
+        """
+        try:
+            # Importiere Cache-Service
+            from src.app.services.cache_service import CacheService
+            
+            cache_service = CacheService()
+            cache_key = f"bge_m3_{embedding_type}_{hash(text)}"
+            
+            if session_id:
+                cache_key = f"{session_id}_{cache_key}"
+            
+            cached_embedding = await cache_service.get(cache_key)
+            
+            if cached_embedding:
+                self.logger.info(f"Cache hit für {embedding_type}-Embedding")
+                return cached_embedding
+            
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"Cache-Lookup fehlgeschlagen: {e}")
+            return None
+
+    async def cache_embeddings(
+        self,
+        text: str,
+        embeddings: Dict[str, Any],
+        session_id: Optional[str] = None,
+        ttl: int = 3600  # 1 Stunde Standard-TTL
+    ) -> bool:
+        """
+        Speichert Embeddings im Cache
+
+        Args:
+            text: Ursprünglicher Text
+            embeddings: Embeddings zum Speichern
+            session_id: Session ID für Cache
+            ttl: Time-to-live in Sekunden
+
+        Returns:
+            True, wenn Speicherung erfolgreich
+        """
+        try:
+            # Importiere Cache-Service
+            from src.app.services.cache_service import CacheService
+            
+            cache_service = CacheService()
+            
+            # Speichere verschiedene Embedding-Typen
+            for embedding_type, embedding_data in embeddings.items():
+                if embedding_data:  # Nur nicht-leere Embeddings speichern
+                    cache_key = f"bge_m3_{embedding_type}_{hash(text)}"
+                    
+                    if session_id:
+                        cache_key = f"{session_id}_{cache_key}"
+                    
+                    await cache_service.set(cache_key, embedding_data, ttl)
+                    self.logger.debug(f"Embedding {embedding_type} gecached")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Cache-Speicherung fehlgeschlagen: {e}")
+            return False

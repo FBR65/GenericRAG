@@ -8,13 +8,13 @@ from pydantic_settings import BaseSettings
 class QdrantSettings(BaseSettings):
     collection_name: str = "generic_rag_collection"
     image_collection_name: str = "generic_rag_images"
-    qdrant_url: str = "http://your_url:6333"
+    qdrant_url: str = "http://10.84.0.7:6333"
     qdrant_api_key: str = ""
 
     # Dense embedding configuration
-    dense_model: str = "bge-m3:latest"
+    dense_model: str = "Alibaba-NLP/gte-Qwen2-7B-instruct"
     dense_dimension: int = 1024
-    dense_base_url: str = "http://localhost:11434"
+    dense_base_url: str = "http://10.84.0.10:8100"
     dense_api_key: str = ""
 
     # Sparse embedding configuration
@@ -38,16 +38,16 @@ class QdrantSettings(BaseSettings):
 class LLMSettings(BaseSettings):
     # Student model configuration
     student_model: str = "google/gemma-3-27b-it"
-    student_base_url: str = "http://your_url/v1"
+    student_base_url: str = "http://10.78.0.5:8114/v1"
     student_api_key: str = ""
 
     # Teacher model configuration
     teacher_model: str = "google/gemma-3-27b-it"
-    teacher_base_url: str = "http://your_url/v1"
+    teacher_base_url: str = "http://10.78.0.5:8114/v1"
     teacher_api_key: str = ""
 
     # Legacy compatibility
-    gemma_base_url: str = "http://your_url/v1"
+    gemma_base_url: str = "http://10.78.0.5:8114/v1"
     gemma_api_key: str = "your_gemma_api_key_here"
 
     model_config = {"env_prefix": "LLM_"}
@@ -84,6 +84,43 @@ class GradioSettings(BaseSettings):
     model_config = {"env_prefix": "GRADIO_"}
 
 
+class BGE_M3_Settings(BaseSettings):
+    # BGE-M3 Modell Konfiguration
+    model_name: str = "BAAI/bge-m3"
+    model_device: str = "auto"
+    max_length: int = 8192
+    
+    # Dense Embedding Konfiguration
+    dense_dimension: int = 1024
+    dense_normalize: bool = True
+    
+    # Sparse Embedding Konfiguration
+    sparse_dimension: int = 49152  # BGE-M3 Vocabulary Size
+    sparse_normalize: bool = True
+    
+    # Multi-Vector Embedding Konfiguration
+    multi_vector_dimension: int = 1024
+    multi_vector_count: int = 32
+    
+    # Cache Konfiguration
+    cache_enabled: bool = True
+    cache_redis_url: str = "redis://localhost:6379"
+    cache_ttl: int = 3600  # 1 Stunde
+    cache_max_size: int = 10000
+    
+    # Error Handling Konfiguration
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    circuit_breaker_threshold: int = 5
+    
+    # Performance Konfiguration
+    batch_size: int = 32
+    max_workers: int = 4
+    timeout: int = 30
+    
+    model_config = {"env_prefix": "BGE_M3_"}
+
+
 class Settings(BaseSettings):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
@@ -91,6 +128,7 @@ class Settings(BaseSettings):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     app: AppSettings = Field(default_factory=AppSettings)
     gradio: GradioSettings = Field(default_factory=GradioSettings)
+    bge_m3: BGE_M3_Settings = Field(default_factory=BGE_M3_Settings)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

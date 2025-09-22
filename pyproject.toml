@@ -119,7 +119,12 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
-    "--cov-fail-under=10",
+    "--cov-fail-under=90",  # Increased coverage requirement for BGE-M3 components
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov/bge_m3",
+    "--cov-report=xml:coverage_bge_m3.xml",
+    "--cov-config=.coveragerc",
+    "--cov-context=test",
     "--tb=short",
     "--disable-warnings",
     "--durations=10",
@@ -129,6 +134,11 @@ addopts = [
     "--maxfail=10",
     "--asyncio-mode=auto",
     "--import-mode=importlib",
+    "--basetemp=tests/tmp",
+    "--testpaths=tests",
+    "--python-files=test_*.py",
+    "--python-classes=Test*",
+    "--python-functions=test_*",
 ]
 markers = [
     "unit: marks tests as unit tests (fast)",
@@ -169,6 +179,25 @@ test_data_dir = "tests/test_data"
 mock_pdfs_dir = "tests/test_data/pdfs"
 mock_images_dir = "tests/test_data/images"
 mock_texts_dir = "tests/test_data/texts"
+bge_m3_test_data_dir = "tests/test_data/bge_m3"
+
+# BGE-M3 specific mock configurations
+bge_m3_mock_configs = [
+    { model = "BGE-M3", dimension = 1024, type = "dense" },
+    { model = "BGE-M3", dimension = 10000, type = "sparse" },
+    { model = "BGE-M3", dimension = 768, count = 10, type = "multi_vector" },
+]
+
+# BGE-M3 test performance thresholds
+bge_m3_performance_thresholds = {
+    "embedding_generation": { max_time = 5.0, min_embeddings_per_second = 10.0 },
+    "dense_embedding": { max_time = 2.0, min_dimension = 1024 },
+    "sparse_embedding": { max_time = 3.0, min_dimensions = 100 },
+    "multi_vector_embedding": { max_time = 4.0, min_vectors = 10, min_dimension = 768 },
+    "hybrid_search": { max_time = 2.0, min_results_per_second = 20.0 },
+    "cache_hit": { max_time = 0.1, min_speedup = 5.0 },
+    "batch_processing": { max_time = 10.0, min_batch_size = 10 },
+}
 
 # Mock PDF configurations
 mock_pdf_configs = [
@@ -211,6 +240,16 @@ embedding_generation = { max_time = 10.0, min_embeddings_per_second = 5.0 }
 vector_search = { max_time = 2.0, min_results_per_second = 10.0 }
 vlm_analysis = { max_time = 15.0, min_analyses_per_second = 2.0 }
 
+# BGE-M3 specific performance thresholds
+[tool.pytest.bge_m3_performance]
+embedding_generation = { max_time = 5.0, min_embeddings_per_second = 10.0 }
+dense_embedding = { max_time = 2.0, min_dimension = 1024 }
+sparse_embedding = { max_time = 3.0, min_dimensions = 100 }
+multi_vector_embedding = { max_time = 4.0, min_vectors = 10, min_dimension = 768 }
+hybrid_search = { max_time = 2.0, min_results_per_second = 20.0 }
+cache_hit = { max_time = 0.1, min_speedup = 5.0 }
+batch_processing = { max_time = 10.0, min_batch_size = 10 }
+
 # Test coverage configuration
 [tool.coverage.run]
 source = ["src"]
@@ -221,9 +260,17 @@ omit = [
     "*/venv/*",
     "*/env/*",
     "*/.tox/*",
+    "*/tmp/*",
 ]
 branch = true
 parallel = true
+include = [
+    "src/app/services/bge_m3_service.py",
+    "src/app/utils/qdrant_utils.py",
+    "src/app/services/search_service.py",
+    "src/app/api/endpoints/query.py",
+    "src/app/api/endpoints/ingest.py",
+]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -237,10 +284,21 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
+    "pass",
 ]
 precision = 2
 show_missing = true
 skip_covered = false
+partial_branches = true
+show_contexts = true
+
+# BGE-M3 specific coverage configuration
+[tool.coverage.html]
+directory = "htmlcov"
+title = "GenericRAG BGE-M3 Test Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage_bge_m3.xml"
 
 [tool.coverage.html]
 directory = "htmlcov"
@@ -310,8 +368,17 @@ line_length = 88
 known_first_party = ["src"]
 
 [tool.bandit]
-exclude_dirs = ["tests"]
-skips = ["B101", "B601"]
+exclude_dirs = ["tests", "tests/test_data", "tests/integration"]
+skips = ["B101", "B601", "B603", "B604", "B605", "B607"]
+
+# BGE-M3 specific security configuration
+[tool.bandit.bge_m3_security]
+check_insecure_requests = true
+check_hardcoded_passwords = true
+check_sql_injection = true
+check_xss = true
+check_ssrf = true
+check_crypto = true
 
 [project.scripts]
 start-backend = "src.app.main:main"

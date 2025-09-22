@@ -14,6 +14,7 @@ from qdrant_client import AsyncQdrantClient
 from src.app.api.state import create_qdrant_client
 from src.app.services.dspy_gepa import DSPyGEPAService
 from src.app.services.image_storage import LocalImageStorage
+from src.app.services.search_service import SearchService
 from src.app.settings import Settings, get_settings
 
 
@@ -65,6 +66,23 @@ async def get_dspy_service(
 
 
 DSPyServiceDep = Annotated[DSPyGEPAService, Depends(get_dspy_service)]
+
+
+# Search service
+async def get_search_service(
+    qdrant_client: QdrantClientDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
+) -> SearchService:
+    """Get Search Service with BGE-M3 support"""
+    return SearchService(
+        qdrant_client=qdrant_client,
+        image_storage=image_storage,
+        settings=settings,
+    )
+
+
+SearchServiceDep = Annotated[SearchService, Depends(get_search_service)]
 
 
 # Initialize Qdrant collection
