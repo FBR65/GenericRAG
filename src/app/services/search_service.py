@@ -3,6 +3,7 @@ Search service for hybrid search functionality
 """
 
 import asyncio
+import aiohttp
 from typing import List, Optional, Dict, Any
 from loguru import logger
 
@@ -526,3 +527,56 @@ class SearchService:
         except Exception as e:
             logger.error(f"Error formatting search results for output: {e}")
             return {"total_results": 0, "results": [], "summary": {}}
+
+    async def get_dense_embedding(self, text: str) -> List[float]:
+        """
+        Generiert Dense Embeddings für einen Text unter Verwendung der konfigurierten Settings
+        
+        Args:
+            text: Text für den Embedding-Vektor
+            
+        Returns:
+            Dense Embedding-Vektor als Liste von Floats
+        """
+        try:
+            # Erstelle die Anfrage für den konfigurierten Endpunkt
+            payload = {
+                "model": self.settings.qdrant.dense_model,
+                "prompt": text,
+                "options": {"temperature": 0, "num_ctx": 2048},
+            }
+            
+            headers = {"Content-Type": "application/json"}
+            
+            # Füge API Key hinzu, wenn vorhanden
+            if self.settings.qdrant.dense_api_key:
+                headers["Authorization"] = f"Bearer {self.settings.qdrant.dense_api_key}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.settings.qdrant.dense_base_url}/v1/embeddings",
+                    json=payload,
+                    headers=headers,
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        # Standardformat für Embeddings
+                        if "data" in result and len(result["data"]) > 0:
+                            return result["data"][0]["embedding"]
+                        else:
+                            logger.warning(
+                                "Kein Embedding in der Antwort gefunden, verwende Dummy-Vektor"
+                            )
+                            # Fallback: generiere einen Dummy-Vektor basierend auf der Dimension
+                            return [0.0] * self.settings.qdrant.dense_dimension
+                    else:
+                        logger.error(
+                            f"Fehler bei der Embedding-Anfrage: {response.status}"
+                        )
+                        # Fallback: generiere einen Dummy-Vektor
+                        return [0.0] * self.settings.qdrant.dense_dimension
+                        
+        except Exception as e:
+            logger.error(f"Fehler bei der Embedding-Erzeugung: {e}")
+            # Fallback: generiere einen Dummy-Vektor
+            return [0.0] * self.settings.qdrant.dense_dimension

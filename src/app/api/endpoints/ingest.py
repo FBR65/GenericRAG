@@ -154,10 +154,8 @@ async def ingest_pdf(
                         element.file_path = str(new_path)
                         stored_paths.append(str(new_path))
 
-        # Initialize text preprocessor with sparse configuration
-        text_preprocessor = TextPreprocessor(
-            sparse_max_features=settings.qdrant.sparse_max_features
-        )
+        # Initialize text preprocessor with settings
+        text_preprocessor = TextPreprocessor(settings=settings)
 
         # Create semantic chunks from extracted elements
         logger.info("Creating semantic chunks from extracted elements")
@@ -430,10 +428,8 @@ async def ingest_multiple_pdfs(
                             element.file_path = str(new_path)
                             stored_paths.append(str(new_path))
 
-            # Initialize text preprocessor with sparse configuration
-            text_preprocessor = TextPreprocessor(
-                sparse_max_features=settings.qdrant.sparse_max_features
-            )
+            # Initialize text preprocessor with settings
+            text_preprocessor = TextPreprocessor(settings=settings)
 
             # Create semantic chunks from extracted elements
             logger.info("Creating semantic chunks from extracted elements")

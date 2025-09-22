@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import aiohttp
 import asyncio
 from ..models.schemas import ExtractionResult, ExtractedElement, ElementType
+from ..settings import Settings
 
 
 class TextPreprocessor:
@@ -16,13 +17,19 @@ class TextPreprocessor:
 
     def __init__(
         self,
-        embedding_model: str = "bge-m3:latest",
-        embedding_endpoint: str = "http://localhost:11434/v1/",
-        sparse_max_features: int = 1000,
+        settings: Optional[Settings] = None,
+        embedding_model: Optional[str] = None,
+        embedding_endpoint: Optional[str] = None,
+        sparse_max_features: Optional[int] = None,
     ):
-        self.embedding_model = embedding_model
-        self.embedding_endpoint = embedding_endpoint
-        self.sparse_max_features = sparse_max_features
+        # Use settings if provided, otherwise create default settings
+        self.settings = settings or Settings()
+        
+        # Use provided parameters or fall back to settings
+        self.embedding_model = embedding_model or self.settings.qdrant.dense_model
+        self.embedding_endpoint = embedding_endpoint or f"{self.settings.qdrant.dense_base_url}/v1/"
+        self.sparse_max_features = sparse_max_features or self.settings.qdrant.sparse_max_features
+        
         self.logger = logging.getLogger(__name__)
 
     def create_chunks(

@@ -14,15 +14,19 @@ class QdrantSettings(BaseSettings):
     # Dense embedding configuration
     dense_model: str = "bge-m3:latest"
     dense_dimension: int = 1024
+    dense_base_url: str = "http://localhost:11434"
+    dense_api_key: str = ""
 
     # Sparse embedding configuration
-    sparse_model: str = "bm42"
+    sparse_model: str = "Qdrant/bm42-all-minilm-l6-v2-attentions"
     sparse_max_features: int = 1000
 
     # CLIP embedding configuration for images
     clip_model: str = "clip-vit-base-patch32"
     clip_dimension: int = 512
-    clip_ollama_endpoint: str = "http://localhost:11434"
+    clip_local: bool = True
+    clip_device: str = "auto"
+    clip_ollama_endpoint: str = ""
 
     # Hybrid search configuration
     hybrid_search_alpha: float = 0.5  # Weight for dense vs sparse in hybrid search
@@ -133,8 +137,16 @@ class Settings(BaseSettings):
             self.qdrant.clip_model = os.environ["QDRANT_CLIP_MODEL"]
         if "QDRANT_CLIP_DIMENSION" in os.environ:
             self.qdrant.clip_dimension = int(os.environ["QDRANT_CLIP_DIMENSION"])
+        if "QDRANT_CLIP_LOCAL" in os.environ:
+            self.qdrant.clip_local = os.environ["QDRANT_CLIP_LOCAL"].lower() == "true"
+        if "QDRANT_CLIP_DEVICE" in os.environ:
+            self.qdrant.clip_device = os.environ["QDRANT_CLIP_DEVICE"]
         if "QDRANT_CLIP_OLLAMA_ENDPOINT" in os.environ:
             self.qdrant.clip_ollama_endpoint = os.environ["QDRANT_CLIP_OLLAMA_ENDPOINT"]
+        if "QDRANT_DENSE_BASE_URL" in os.environ:
+            self.qdrant.dense_base_url = os.environ["QDRANT_DENSE_BASE_URL"]
+        if "QDRANT_DENSE_API_KEY" in os.environ:
+            self.qdrant.dense_api_key = os.environ["QDRANT_DENSE_API_KEY"]
 
         # Update LLM settings only if environment variables are set
         if "STUDENT_MODEL" in os.environ:
@@ -203,8 +215,16 @@ class Settings(BaseSettings):
             self.qdrant.clip_model = os.environ["QDRANT_CLIP_MODEL"]
         if "QDRANT_CLIP_DIMENSION" in os.environ:
             self.qdrant.clip_dimension = int(os.environ["QDRANT_CLIP_DIMENSION"])
+        if "QDRANT_CLIP_LOCAL" in os.environ:
+            self.qdrant.clip_local = os.environ["QDRANT_CLIP_LOCAL"].lower() == "true"
+        if "QDRANT_CLIP_DEVICE" in os.environ:
+            self.qdrant.clip_device = os.environ["QDRANT_CLIP_DEVICE"]
         if "QDRANT_CLIP_OLLAMA_ENDPOINT" in os.environ:
             self.qdrant.clip_ollama_endpoint = os.environ["QDRANT_CLIP_OLLAMA_ENDPOINT"]
+        if "QDRANT_DENSE_BASE_URL" in os.environ:
+            self.qdrant.dense_base_url = os.environ["QDRANT_DENSE_BASE_URL"]
+        if "QDRANT_DENSE_API_KEY" in os.environ:
+            self.qdrant.dense_api_key = os.environ["QDRANT_DENSE_API_KEY"]
 
         # Update LLM settings
         if "STUDENT_MODEL" in os.environ:
