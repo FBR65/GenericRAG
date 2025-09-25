@@ -4,17 +4,12 @@ Search service for hybrid search functionality with BGE-M3 support
 
 import asyncio
 import aiohttp
+import time
 from typing import List, Optional, Dict, Any, Union
 from loguru import logger
 
 from src.app.utils.qdrant_utils import (
-    hybrid_search_with_metadata,
-    search_images_with_text_context,
-    combine_and_rank_results,
     create_payload_filter,
-    bge_m3_hybrid_search_with_retry,
-    prepare_bge_m3_query_embeddings,
-    format_bge_m3_search_results,
     convert_bge_m3_sparse_to_qdrant_format,
 )
 from src.app.models.schemas import SearchResult
@@ -31,29 +26,31 @@ class SearchService:
 
     def __init__(
         self,
-        qdrant_client: AsyncQdrantClient,
-        image_storage,
         settings,
+        bge_m3_service=None,
+        qdrant_utils=None,
+        qdrant_client=None,
+        image_storage=None,
     ):
         """
         Initialize the search service with BGE-M3 support
 
         Args:
-            qdrant_client: Qdrant client instance
-            image_storage: Image storage service
             settings: Application settings
+            bge_m3_service: BGE-M3 service instance
+            qdrant_utils: Qdrant utils instance
+            qdrant_client: Qdrant client instance
+            image_storage: Image storage instance
         """
+        self.settings = settings
+        self.bge_m3_service = bge_m3_service
+        self.qdrant_utils = qdrant_utils
         self.qdrant_client = qdrant_client
         self.image_storage = image_storage
-        self.settings = settings
 
         # Collection names
         self.text_collection_name = settings.qdrant.collection_name
         self.image_collection_name = f"{settings.qdrant.collection_name}_images"
-
-        # BGE-M3 Service initialization
-        self.bge_m3_service = None
-        self._initialize_bge_m3_service()
 
         logger.info("Initialized SearchService with BGE-M3 support")
 
@@ -193,16 +190,16 @@ class SearchService:
             if sparse_vector and isinstance(next(iter(sparse_vector.keys())), int):
                 qdrant_sparse_vector = convert_bge_m3_sparse_to_qdrant_format(sparse_vector)
             
-            response = await hybrid_search_with_metadata(
-                qdrant_client=self.qdrant_client,
+            response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                dense_vector=query_embedding,
-                sparse_vector=qdrant_sparse_vector,
-                alpha=alpha,
+                query=models.Vector(
+                    name="dense",
+                    vector=query_embedding,
+                ),
                 limit=limit,
                 query_filter=query_filter,
+                with_payload=True,
                 score_threshold=score_threshold,
-                metadata_filters=metadata_filters,
             )
 
             # Convert to dictionary format
@@ -248,14 +245,15 @@ class SearchService:
             List of image search results
         """
         try:
-            response = await search_images_with_text_context(
-                qdrant_client=self.qdrant_client,
-                image_collection_name=self.image_collection_name,
-                text_collection_name=self.text_collection_name,
-                query_vector=query_embedding,
-                text_query=text_query,
+            response = await self.qdrant_client.query_points(
+                collection_name=self.image_collection_name,
+                query=models.Vector(
+                    name="dense",
+                    vector=query_embedding,
+                ),
                 limit=limit,
                 query_filter=query_filter,
+                with_payload=True,
                 score_threshold=score_threshold,
             )
 
@@ -300,13 +298,14 @@ class SearchService:
             Combined and ranked results
         """
         try:
-            combined_results = combine_and_rank_results(
-                text_results=text_results,
-                image_results=image_results,
-                strategy=strategy,
-                text_weight=text_weight,
-                image_weight=image_weight,
-            )
+            combined_results = []
+            for text_result in text_results:
+                combined_results.append(text_result)
+            for image_result in image_results:
+                combined_results.append(image_result)
+            
+            # Sort by score
+            combined_results.sort(key=lambda x: x.get("score", 0), reverse=True)
 
             logger.info(f"Combined and ranked {len(combined_results)} results")
             return combined_results
@@ -789,27 +788,26 @@ class SearchService:
             base_filter = create_payload_filter(session_id=session_id)
             
             # Führe BGE-M3 hybride Suche durch
-            search_response = await bge_m3_hybrid_search_with_retry(
-                qdrant_client=self.qdrant_client,
+            search_response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                dense_vector=dense_vector,
-                sparse_vector=sparse_vector,
-                alpha=alpha,
+                query=models.Vector(
+                    name="dense",
+                    vector=dense_vector,
+                ),
                 limit=top_k,
                 query_filter=base_filter,
+                with_payload=True,
                 score_threshold=score_threshold,
-                enable_multivector_reranking=multivector_query is not None,
-                multivector_query=multivector_query,
-                multivector_weight=gamma,
             )
             
             # Formatieren der Ergebnisse
-            formatted_results = format_bge_m3_search_results(
-                search_response,
-                include_scores=True,
-                include_payload=True,
-                format_type="detailed"
-            )
+            formatted_results = []
+            for point in search_response.points:
+                formatted_results.append({
+                    "id": point.id,
+                    "score": point.score,
+                    "payload": point.payload,
+                })
             
             # Konvertiere in SearchResult-Format
             search_results = []
@@ -899,12 +897,13 @@ class SearchService:
             )
             
             # Formatieren der Ergebnisse
-            formatted_results = format_bge_m3_search_results(
-                search_response,
-                include_scores=True,
-                include_payload=True,
-                format_type="detailed"
-            )
+            formatted_results = []
+            for point in search_response.points:
+                formatted_results.append({
+                    "id": point.id,
+                    "score": point.score,
+                    "payload": point.payload,
+                })
             
             # Konvertiere in SearchResult-Format
             search_results = []
@@ -1307,6 +1306,221 @@ class SearchService:
         except Exception as e:
             logger.error(f"Error calculating vector completeness: {e}")
             return 0.0
+    
+    async def get_bge_m3_embeddings(self, query_text: str, mode: str) -> Dict[str, Any]:
+        """Get BGE-M3 embeddings for a specific mode"""
+        try:
+            if not self.bge_m3_service:
+                return {"error": "BGE-M3 service not available"}
+            
+            if mode == "dense":
+                embedding = await self.bge_m3_service.generate_dense_embedding(query_text)
+                return {"dense": embedding}
+            elif mode == "sparse":
+                embedding = await self.bge_m3_service.generate_sparse_embedding(query_text)
+                return {"sparse": embedding}
+            elif mode == "multi_vector":
+                embedding = await self.bge_m3_service.generate_multivector_embedding(query_text)
+                return {"multi_vector": embedding}
+            else:
+                return {"error": f"Unknown mode: {mode}"}
+        except Exception as e:
+            logger.error(f"Error getting BGE-M3 embeddings: {e}")
+            return {"error": str(e)}
+    
+    async def bge_m3_hybrid_search(self, search_request, **kwargs) -> Dict[str, Any]:
+        """Perform BGE-M3 hybrid search"""
+        try:
+            if not self.bge_m3_service:
+                return {"error": "BGE-M3 service not available"}
+            
+            # Use the existing hybrid search method
+            results = await self.search_hybrid(
+                query=search_request.query,
+                use_bge_m3=True,
+                search_strategy="hybrid",
+                alpha=search_request.alpha,
+                top_k=search_request.top_k,
+                score_threshold=search_request.score_threshold,
+                metadata_filters=search_request.metadata_filters,
+                include_images=True,
+                session_id=search_request.session_id,
+                page=search_request.page,
+                page_size=search_request.page_size,
+            )
+            
+            return {
+                "results": results,
+                "total_results": len(results),
+                "query": search_request.query,
+                "search_mode": "hybrid"
+            }
+        except Exception as e:
+            logger.error(f"Error in BGE-M3 hybrid search: {e}")
+            return {"error": str(e)}
+    
+    async def create_collection(self, collection_name: str, config: Dict[str, Any] = None) -> bool:
+        """Create a new collection"""
+        try:
+            if not self.qdrant_utils:
+                return False
+            
+            return await self.qdrant_utils.create_collection(collection_name, config)
+        except Exception as e:
+            logger.error(f"Error creating collection: {e}")
+            return False
+    
+    async def delete_collection(self, collection_name: str) -> bool:
+        """Delete a collection"""
+        try:
+            if not self.qdrant_utils:
+                return False
+            
+            return await self.qdrant_utils.delete_collection(collection_name)
+        except Exception as e:
+            logger.error(f"Error deleting collection: {e}")
+            return False
+    
+    async def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
+        """Get collection statistics"""
+        try:
+            if not self.qdrant_utils:
+                return {"error": "Qdrant utils not available"}
+            
+            return await self.qdrant_utils.get_collection_stats(collection_name)
+        except Exception as e:
+            logger.error(f"Error getting collection stats: {e}")
+            return {"error": str(e)}
+    
+    async def optimize_collection(self, collection_name: str) -> bool:
+        """Optimize a collection"""
+        try:
+            if not self.qdrant_utils:
+                return False
+            
+            return await self.qdrant_utils.optimize_collection(collection_name)
+        except Exception as e:
+            logger.error(f"Error optimizing collection: {e}")
+            return False
+    
+    async def scroll_collection(self, collection_name: str, limit: int = 100,
+                              with_payload: bool = True, with_vectors: bool = False) -> Dict[str, Any]:
+        """Scroll through collection contents"""
+        try:
+            if not self.qdrant_utils:
+                return {"error": "Qdrant utils not available"}
+            
+            return await self.qdrant_utils.scroll_collection(collection_name, limit, with_payload, with_vectors)
+        except Exception as e:
+            logger.error(f"Error scrolling collection: {e}")
+            return {"error": str(e)}
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """Perform health check"""
+        try:
+            status = {
+                "service": "Search Service",
+                "status": "healthy",
+                "timestamp": time.time(),
+                "bge_m3_available": self.bge_m3_service is not None,
+                "qdrant_utils_available": self.qdrant_utils is not None,
+            }
+            
+            # Check BGE-M3 service health
+            if self.bge_m3_service:
+                try:
+                    bge_m3_health = await self.bge_m3_service.health_check()
+                    status["bge_m3_status"] = bge_m3_health["status"]
+                except Exception as e:
+                    status["bge_m3_status"] = "error"
+                    status["bge_m3_error"] = str(e)
+            
+            # Check Qdrant utils health
+            if self.qdrant_utils:
+                try:
+                    qdrant_health = await self.qdrant_utils.health_check()
+                    status["qdrant_status"] = qdrant_health["status"]
+                except Exception as e:
+                    status["qdrant_status"] = "error"
+                    status["qdrant_error"] = str(e)
+            
+            return status
+            
+        except Exception as e:
+            logger.error(f"Error in health check: {e}")
+            return {
+                "service": "Search Service",
+                "status": "unhealthy",
+                "error": str(e),
+                "timestamp": time.time()
+            }
+    
+    async def batch_search(self, queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Perform batch search"""
+        try:
+            results = []
+            for query in queries:
+                try:
+                    if query.get("search_type") == "hybrid":
+                        result = await self.bge_m3_hybrid_search(query)
+                    elif query.get("search_type") == "multivector":
+                        result = await self.bge_m3_multivector_search(
+                            query["query"],
+                            strategy=query.get("strategy", "max_sim"),
+                            top_k=query.get("top_k", 10),
+                            score_threshold=query.get("score_threshold"),
+                            metadata_filters=query.get("metadata_filters"),
+                            session_id=query.get("session_id"),
+                            page=query.get("page", 1),
+                            page_size=query.get("page_size", 10),
+                        )
+                    else:
+                        result = await self.search_hybrid(
+                            query["query"],
+                            use_bge_m3=query.get("use_bge_m3", True),
+                            search_strategy=query.get("search_strategy", "hybrid"),
+                            alpha=query.get("alpha", 0.5),
+                            top_k=query.get("top_k", 10),
+                            score_threshold=query.get("score_threshold"),
+                            metadata_filters=query.get("metadata_filters"),
+                            include_images=query.get("include_images", True),
+                            session_id=query.get("session_id"),
+                            page=query.get("page", 1),
+                            page_size=query.get("page_size", 10),
+                        )
+                    
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Error in batch search query: {e}")
+                    results.append({"error": str(e)})
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in batch search: {e}")
+            return [{"error": str(e)} for _ in queries]
+    
+    async def get_session_documents(self, session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get documents for a session"""
+        try:
+            if not self.qdrant_utils:
+                return []
+            
+            return await self.qdrant_utils.get_session_documents(session_id, limit)
+        except Exception as e:
+            logger.error(f"Error getting session documents: {e}")
+            return []
+    
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session"""
+        try:
+            if not self.qdrant_utils:
+                return False
+            
+            return await self.qdrant_utils.delete_session(session_id)
+        except Exception as e:
+            logger.error(f"Error deleting session: {e}")
+            return False
 
     def _calculate_metadata_quality(self, result: Dict[str, Any]) -> float:
         """

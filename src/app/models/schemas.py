@@ -6,6 +6,7 @@ from typing import List, Optional, Any, Dict, Union
 from pydantic import BaseModel, Field
 from uuid import UUID
 from enum import Enum
+from fastapi import UploadFile
 
 
 class ElementType(str, Enum):
@@ -95,6 +96,68 @@ class SearchResultItem(BaseModel):
     )
     element_type: Optional[str] = Field(
         None, description="Type of element (text, image, table, chart)"
+    )
+
+
+class SearchRequest(BaseModel):
+    """Search request for query endpoint with hybrid search support"""
+
+    query: str = Field(..., description="Search query text")
+    search_mode: BGE_M3_SearchMode = Field(
+        BGE_M3_SearchMode.HYBRID,
+        description="Search mode to use (dense, sparse, multivector, hybrid)"
+    )
+    alpha: float = Field(
+        0.5,
+        description="Weight for dense vs sparse search (0.0-1.0)"
+    )
+    beta: float = Field(
+        0.3,
+        description="Weight for multivector reranking (0.0-1.0)"
+    )
+    gamma: float = Field(
+        0.2,
+        description="Weight for multivector component (0.0-1.0)"
+    )
+    top_k: int = Field(
+        10,
+        description="Number of results to return"
+    )
+    score_threshold: Optional[float] = Field(
+        None,
+        description="Minimum score threshold for results"
+    )
+    multivector_strategy: BGE_M3_MultivectorStrategy = Field(
+        BGE_M3_MultivectorStrategy.MAX_SIM,
+        description="Strategy for multivector similarity calculation"
+    )
+    metadata_filters: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Additional metadata filters"
+    )
+    include_images: bool = Field(
+        True,
+        description="Whether to include image results"
+    )
+    session_id: Optional[str] = Field(
+        None,
+        description="Session identifier for filtering"
+    )
+    page: int = Field(
+        1,
+        description="Page number for pagination"
+    )
+    page_size: int = Field(
+        10,
+        description="Number of results per page"
+    )
+    use_vlm: bool = Field(
+        False,
+        description="Whether to use VLM for response generation"
+    )
+    use_images: bool = Field(
+        True,
+        description="Whether to use images in VLM processing"
     )
 
 
@@ -386,6 +449,16 @@ class IngestResult(BaseModel):
     )
 
 
+class IngestRequest(BaseModel):
+    """Request for PDF ingestion endpoint"""
+
+    file: UploadFile = Field(..., description="PDF file to ingest")
+    session_id: Optional[str] = Field(None, description="Session identifier")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    use_vlm: bool = Field(False, description="Whether to use VLM for processing")
+    include_images: bool = Field(True, description="Whether to include images in processing")
+
+
 class IngestResponse(BaseModel):
     """Response for PDF ingestion endpoint"""
 
@@ -411,6 +484,27 @@ class VLMResponse(BaseModel):
     images_used: Optional[bool] = Field(None, description="Whether images were used")
     sources_referenced: Optional[List[int]] = Field(
         None, description="List of source IDs referenced"
+    )
+
+
+class SearchResponse(BaseModel):
+    """Response for search endpoint with hybrid search support"""
+
+    query: str = Field(..., description="The original query")
+    session_id: str = Field(..., description="Session identifier")
+    results: List[SearchResult] = Field(
+        default_factory=list, description="Search results"
+    )
+    total_results: int = Field(..., description="Total number of results")
+    search_strategy: str = Field("hybrid", description="Search strategy used")
+    metadata_filters: Optional[Dict[str, Any]] = Field(
+        None, description="Metadata filters applied"
+    )
+    page: int = Field(1, description="Current page number")
+    page_size: int = Field(10, description="Number of results per page")
+    processing_time: float = Field(..., description="Total processing time")
+    cache_hit: Optional[bool] = Field(
+        None, description="Whether cache was used"
     )
 
 

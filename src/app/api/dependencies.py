@@ -76,9 +76,9 @@ async def get_search_service(
 ) -> SearchService:
     """Get Search Service with BGE-M3 support"""
     return SearchService(
+        settings=settings,
         qdrant_client=qdrant_client,
         image_storage=image_storage,
-        settings=settings,
     )
 
 

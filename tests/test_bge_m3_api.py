@@ -21,6 +21,7 @@ from src.app.models.schemas import (
     BGE_M3_SearchMode,
     BGE_M3_MultivectorStrategy,
     SearchResult,
+    SearchResultItem,
     IngestRequest,
     IngestResponse,
     IngestResult,
@@ -29,143 +30,225 @@ from src.app.models.schemas import (
 from src.app.settings import Settings, BGE_M3_Settings
 
 
-class TestBGE_M3_APIEndpoints:
-    """Test BGE-M3 API endpoints"""
+@pytest.fixture
+def client():
+    """Create test client"""
+    # Override dependencies with mocks
+    app.dependency_overrides = {}
+    
+    # Mock the dependencies
+    with patch('src.app.api.dependencies.get_settings') as mock_settings, \
+         patch('src.app.api.dependencies.get_qdrant_client') as mock_qdrant, \
+         patch('src.app.api.dependencies.get_image_storage') as mock_image_storage, \
+         patch('src.app.api.dependencies.get_search_service') as mock_search_service:
+        
+        # Configure mocks
+        mock_settings.return_value = Settings()
+        mock_qdrant_client = Mock()
+        # Remove the qdrant attribute that doesn't exist on AsyncQdrantClient
+        # mock_qdrant_client.qdrant = mock_qdrant_client  # This line causes the error
+        mock_qdrant.return_value = mock_qdrant_client
+        mock_image_storage.return_value = Mock()
+        mock_search_service.return_value = Mock()
+        
+        # Add query_points method to mock qdrant client
+        mock_qdrant_client.query_points = AsyncMock()
+        mock_qdrant_client.query_points.return_value = Mock()
+        mock_qdrant_client.query_points.return_value.points = []
+        mock_qdrant_client.query_points.return_value.result = []
+        
+        # Add models attribute to mock qdrant client
+        mock_qdrant_client.models = Mock()
+        mock_qdrant_client.models.Vector = Mock()
+        mock_qdrant_client.models.SparseVector = Mock()
+        mock_qdrant_client.models.Filter = Mock()
+        mock_qdrant_client.models.FieldCondition = Mock()
+        mock_qdrant_client.models.MatchValue = Mock()
+        mock_qdrant_client.models.MatchAny = Mock()
+        
+        # Add get_collections method to mock qdrant client
+        mock_qdrant_client.get_collections = AsyncMock()
+        mock_qdrant_client.get_collections.return_value = Mock()
+        mock_qdrant_client.get_collections.return_value.collections = []
+        
+        # Add create_collection method to mock qdrant client
+        mock_qdrant_client.create_collection = AsyncMock()
+        
+        # Add get_collection method to mock qdrant client
+        mock_qdrant_client.get_collection = AsyncMock()
+        mock_qdrant_client.get_collection.return_value = Mock()
+        
+        # Add get_collection_stats method to mock qdrant client
+        mock_qdrant_client.get_collection_stats = AsyncMock()
+        mock_qdrant_client.get_collection_stats.return_value = Mock()
+        
+        # Add optimize method to mock qdrant client
+        mock_qdrant_client.optimize = AsyncMock()
+        
+        # Add delete method to mock qdrant client
+        mock_qdrant_client.delete = AsyncMock()
+        
+        # Add scroll method to mock qdrant client
+        mock_qdrant_client.scroll = AsyncMock()
+        mock_qdrant_client.scroll.return_value = ([], None)
+        
+        # Add delete_collection method to mock qdrant client
+        mock_qdrant_client.delete_collection = AsyncMock()
+        
+        # Remove the qdrant attribute that doesn't exist on AsyncQdrantClient
+        # mock_qdrant_client.qdrant = mock_qdrant_client  # This line causes the error
+        
+        yield TestClient(app)
+    
+    # Clean up overrides
+    app.dependency_overrides.clear()
 
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        return TestClient(app)
 
-    @pytest.fixture
-    def mock_settings(self):
-        """Mock settings"""
-        return Settings()
+@pytest.fixture
+def mock_settings():
+    """Mock settings"""
+    return Settings()
 
-    @pytest.fixture
-    def mock_bge_m3_service(self):
-        """Mock BGE-M3 service"""
-        with patch('src.app.api.endpoints.query.BGE_M3_Service') as mock_service:
-            mock_instance = Mock(spec=BGE_M3_Service)
-            mock_instance.generate_dense_embedding = AsyncMock(return_value=[0.1, 0.2, 0.3])
-            mock_instance.generate_sparse_embedding = AsyncMock(return_value={"0": 0.5, "1": 0.3})
-            mock_instance.generate_multivector_embedding = AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]])
-            mock_instance.generate_embeddings = AsyncMock(return_value={
-                "embeddings": {
-                    "dense": [0.1, 0.2, 0.3],
-                    "sparse": {"0": 0.5, "1": 0.3},
-                    "multi_vector": [[0.1, 0.2], [0.3, 0.4]]
-                },
-                "errors": [],
-                "text": "Test query"
-            })
-            mock_instance.health_check = AsyncMock(return_value={
-                "status": "healthy",
-                "cache_status": "healthy",
-                "model_status": "healthy"
-            })
-            mock_service.return_value = mock_instance
-            yield mock_instance
 
-    @pytest.fixture
-    def mock_search_service(self):
-        """Mock search service"""
-        with patch('src.app.api.endpoints.query.SearchService') as mock_service:
-            mock_instance = Mock(spec=SearchService)
-            mock_instance.bge_m3_hybrid_search = AsyncMock(return_value=SearchResponse(
-                query="Test query",
-                session_id="test-session",
-                results=[
-                    SearchResult(
-                        id="doc1",
-                        document="test1.pdf",
-                        page=1,
-                        score=0.95,
-                        content="Test document 1 content",
-                        metadata={"source": "test1.pdf", "page": 1, "type": "text"},
-                        search_type="hybrid",
-                        embedding_type="dense"
-                    )
-                ],
-                total_results=1,
-                search_mode=BGE_M3_SearchMode.HYBRID,
-                processing_time=0.5,
-                cache_hits=0,
-                embedding_types=["dense", "sparse", "multi_vector"]
-            ))
-            mock_instance.bge_m3_multivector_search = AsyncMock(return_value=SearchResponse(
-                query="Test query",
-                session_id="test-session",
-                results=[],
-                total_results=0,
-                search_mode=BGE_M3_SearchMode.MULTIVECTOR
-            ))
-            mock_instance.health_check = AsyncMock(return_value={
-                "status": "healthy",
-                "bge_m3_service": {"status": "healthy"},
-                "qdrant_service": {"status": "healthy"}
-            })
-            mock_service.return_value = mock_instance
-            yield mock_instance
-
-    @pytest.fixture
-    def mock_qdrant_utils(self):
-        """Mock Qdrant utils"""
-        with patch('src.app.api.endpoints.ingest.BGE_M3_QdrantUtils') as mock_utils:
-            mock_instance = Mock(spec=BGE_M3_QdrantUtils)
-            mock_instance.create_collection = AsyncMock(return_value=True)
-            mock_instance.hybrid_search = AsyncMock(return_value={
-                "results": [
-                    {
-                        "id": "doc1",
-                        "score": 0.95,
-                        "payload": {
-                            "content": "Test document 1",
-                            "metadata": {"source": "test1.pdf", "page": 1}
-                        }
-                    }
-                ]
-            })
-            mock_instance.prepare_query_embeddings = AsyncMock(return_value={
+@pytest.fixture
+def mock_bge_m3_service():
+    """Mock BGE-M3 service"""
+    with patch('src.app.services.bge_m3_service.BGE_M3_Service') as mock_service:
+        mock_instance = Mock(spec=BGE_M3_Service)
+        mock_instance.generate_dense_embedding = AsyncMock(return_value=[0.1, 0.2, 0.3])
+        mock_instance.generate_sparse_embedding = AsyncMock(return_value={"0": 0.5, "1": 0.3})
+        mock_instance.generate_multivector_embedding = AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]])
+        mock_instance.generate_embeddings = AsyncMock(return_value={
+            "embeddings": {
                 "dense": [0.1, 0.2, 0.3],
                 "sparse": {"0": 0.5, "1": 0.3},
                 "multi_vector": [[0.1, 0.2], [0.3, 0.4]]
-            })
-            mock_instance.scroll_collection = AsyncMock(return_value=([
-                {
-                    "id": 1,
-                    "payload": {"content": "Test document 1", "metadata": {"source": "test1.pdf"}}
-                }
-            ], None))
-            mock_instance.health_check = AsyncMock(return_value={"status": "healthy"})
-            mock_utils.return_value = mock_instance
-            yield mock_instance
+            },
+            "errors": [],
+            "text": "Test query"
+        })
+        mock_instance.health_check = AsyncMock(return_value={
+            "status": "healthy",
+            "cache_status": "healthy",
+            "model_status": "healthy"
+        })
+        mock_service.return_value = mock_instance
+        yield mock_instance
 
-    @pytest.fixture
-    def mock_ingest_service(self):
-        """Mock ingest service"""
-        with patch('src.app.api.endpoints.ingest.IngestService') as mock_service:
-            mock_instance = Mock()
-            mock_instance.ingest_pdf = AsyncMock(return_value=IngestResponse(
-                results=[
-                    IngestResult(
-                        filename="test.pdf",
-                        num_pages=5,
-                        status="success",
-                        embeddings_generated={
-                            "dense": 10,
-                            "sparse": 10,
-                            "multi_vector": 10
-                        },
-                        processing_time=2.5,
-                        cache_hits=5,
-                        bge_m3_used=True,
-                        embedding_types=["dense", "sparse", "multi_vector"]
-                    )
-                ]
-            ))
-            mock_service.return_value = mock_instance
-            yield mock_instance
+
+@pytest.fixture
+def mock_search_service():
+    """Mock search service"""
+    with patch('src.app.services.search_service.SearchService') as mock_service:
+        mock_instance = Mock(spec=SearchService)
+        mock_instance.bge_m3_hybrid_search = AsyncMock(return_value=SearchResponse(
+            query="Test query",
+            session_id="test-session",
+            results=[
+                SearchResult(
+                    items=[
+                        SearchResultItem(
+                            id=1,
+                            score=0.95,
+                            document="test1.pdf",
+                            page=1,
+                            metadata={"source": "test1.pdf", "page": 1, "type": "text"},
+                            search_type="hybrid"
+                        )
+                    ],
+                    total=1,
+                    query="Test query"
+                )
+            ],
+            total_results=1,
+            search_strategy="hybrid",
+            processing_time=0.5,
+            cache_hit=False
+        ))
+        mock_instance.bge_m3_multivector_search = AsyncMock(return_value=SearchResponse(
+            query="Test query",
+            session_id="test-session",
+            results=[
+                SearchResult(
+                    items=[],
+                    total=0,
+                    query="Test query"
+                )
+            ],
+            total_results=0,
+            search_mode=BGE_M3_SearchMode.MULTIVECTOR,
+            processing_time=0.5
+        ))
+        mock_instance.health_check = AsyncMock(return_value={
+            "status": "healthy",
+            "bge_m3_service": {"status": "healthy"},
+            "qdrant_service": {"status": "healthy"}
+        })
+        mock_service.return_value = mock_instance
+        yield mock_instance
+
+
+@pytest.fixture
+def mock_qdrant_utils():
+    """Mock Qdrant utils"""
+    with patch('src.app.api.endpoints.ingest.BGE_M3_QdrantUtils') as mock_utils:
+        mock_instance = Mock(spec=BGE_M3_QdrantUtils)
+        mock_instance.create_collection = AsyncMock(return_value=True)
+        mock_instance.hybrid_search = AsyncMock(return_value={
+            "results": [
+                {
+                    "id": "doc1",
+                    "score": 0.95,
+                    "payload": {
+                        "content": "Test document 1",
+                        "metadata": {"source": "test1.pdf", "page": 1}
+                    }
+                }
+            ]
+        })
+        mock_instance.prepare_query_embeddings = AsyncMock(return_value={
+            "dense": [0.1, 0.2, 0.3],
+            "sparse": {"0": 0.5, "1": 0.3},
+            "multi_vector": [[0.1, 0.2], [0.3, 0.4]]
+        })
+        mock_instance.scroll_collection = AsyncMock(return_value=([
+            {
+                "id": 1,
+                "payload": {"content": "Test document 1", "metadata": {"source": "test1.pdf"}}
+            }
+        ], None))
+        mock_instance.health_check = AsyncMock(return_value={"status": "healthy"})
+        mock_utils.return_value = mock_instance
+        yield mock_instance
+
+
+@pytest.fixture
+def mock_ingest_service():
+    """Mock ingest service"""
+    with patch('src.app.api.endpoints.ingest.ingest_bge_m3') as mock_service:
+        mock_service.return_value = IngestResponse(
+            results=[
+                IngestResult(
+                    filename="test.pdf",
+                    num_pages=5,
+                    status="success",
+                    embeddings_generated={
+                        "dense": 10,
+                        "sparse": 10,
+                        "multi_vector": 10
+                    },
+                    processing_time=2.5,
+                    cache_hits=5,
+                    bge_m3_used=True,
+                    embedding_types=["dense", "sparse", "multi_vector"]
+                )
+            ]
+        )
+        yield mock_service
+
+
+class TestBGE_M3_APIEndpoints:
+    """Test BGE-M3 API endpoints"""
 
 
 class TestBGE_M3QueryEndpoints:
@@ -174,6 +257,14 @@ class TestBGE_M3QueryEndpoints:
     @pytest.mark.asyncio
     async def test_query_bge_m3_endpoint_success(self, client, mock_search_service):
         """Test successful /query-bge-m3 endpoint"""
+        # Mock the search service to be available
+        mock_search_service.bge_m3_service = Mock()
+        mock_search_service.bge_m3_service.generate_embeddings = AsyncMock(return_value={
+            "dense": [0.1] * 1024,
+            "sparse": {"0": 0.5, "1": 0.3},
+            "multi_vector": [[0.1] * 768 for _ in range(10)]
+        })
+        
         response = client.post(
             "/api/v1/query-bge-m3",
             json={
@@ -363,8 +454,11 @@ class TestBGE_M3QueryEndpoints:
         assert "results" in data
 
     @pytest.mark.asyncio
-    async def test_query_bge_m3_endpoint_empty_query(self, client):
+    async def test_query_bge_m3_endpoint_empty_query(self, client, mock_search_service):
         """Test /query-bge-m3 endpoint with empty query"""
+        # Mock the search service to be available
+        mock_search_service.bge_m3_service = Mock()
+        
         response = client.post(
             "/api/v1/query-bge-m3",
             json={
@@ -422,9 +516,16 @@ class TestBGE_M3QueryEndpoints:
         mock_search_service.bge_m3_hybrid_search = AsyncMock(return_value=SearchResponse(
             query="Test query",
             session_id="test-session",
-            results=[],
+            results=[
+                SearchResult(
+                    items=[],
+                    total=0,
+                    query="Test query"
+                )
+            ],
             total_results=0,
-            search_mode=BGE_M3_SearchMode.HYBRID
+            search_mode=BGE_M3_SearchMode.HYBRID,
+            processing_time=0.5
         ))
         
         response = client.post(
@@ -462,8 +563,13 @@ class TestBGE_M3IngestEndpoints:
             },
             data={
                 "session_id": "test-session",
-                "use_bge_m3": True,
-                "embedding_types": ["dense", "sparse", "multi_vector"]
+                "use_bge_m3": "true",
+                "embedding_types": "dense,sparse,multi_vector",
+                "include_dense": "true",
+                "include_sparse": "true",
+                "include_multivector": "true",
+                "batch_size": "32",
+                "cache_embeddings": "true"
             }
         )
         
@@ -485,8 +591,8 @@ class TestBGE_M3IngestEndpoints:
             },
             data={
                 "session_id": "test-session",
-                "use_bge_m3": True,
-                "embedding_types": ["dense"]
+                "use_bge_m3": "true",
+                "embedding_types": "dense"
             }
         )
         
@@ -506,8 +612,8 @@ class TestBGE_M3IngestEndpoints:
             },
             data={
                 "session_id": "test-session",
-                "use_bge_m3": True,
-                "embedding_types": ["sparse"]
+                "use_bge_m3": "true",
+                "embedding_types": "sparse"
             }
         )
         
@@ -527,8 +633,8 @@ class TestBGE_M3IngestEndpoints:
             },
             data={
                 "session_id": "test-session",
-                "use_bge_m3": True,
-                "embedding_types": ["multi_vector"]
+                "use_bge_m3": "true",
+                "embedding_types": "multi_vector"
             }
         )
         
@@ -572,10 +678,10 @@ class TestBGE_M3IngestEndpoints:
             },
             data={
                 "session_id": "test-session",
-                "use_bge_m3": True,
-                "embedding_types": ["dense", "sparse", "multi_vector"],
-                "chunk_size": 512,
-                "chunk_overlap": 50
+                "use_bge_m3": "true",
+                "embedding_types": "dense,sparse,multi_vector",
+                "chunk_size": "512",
+                "chunk_overlap": "50"
             }
         )
         
@@ -597,11 +703,7 @@ class TestBGE_M3IngestEndpoints:
                 "session_id": "test-session",
                 "use_bge_m3": True,
                 "embedding_types": ["dense", "sparse", "multi_vector"],
-                "metadata": {
-                    "author": "Test Author",
-                    "title": "Test Document",
-                    "subject": "Test Subject"
-                }
+                "metadata": '{"author": "Test Author", "title": "Test Document", "subject": "Test Subject"}'
             }
         )
         
@@ -655,7 +757,7 @@ class TestBGE_M3IngestEndpoints:
     @pytest.mark.asyncio
     async def test_ingest_bge_m3_endpoint_service_error(self, client, mock_ingest_service):
         """Test /ingest-bge-m3 endpoint with service error"""
-        mock_ingest_service.ingest_pdf = AsyncMock(side_effect=Exception("Service error"))
+        mock_ingest_service.side_effect = Exception("Service error")
         
         pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
         
@@ -666,7 +768,7 @@ class TestBGE_M3IngestEndpoints:
             },
             data={
                 "session_id": "test-session",
-                "use_bge_m3": True
+                "use_bge_m3": "true"
             }
         )
         
@@ -675,7 +777,7 @@ class TestBGE_M3IngestEndpoints:
     @pytest.mark.asyncio
     async def test_ingest_bge_m3_endpoint_processing_error(self, client, mock_ingest_service):
         """Test /ingest-bge-m3 endpoint with processing error"""
-        mock_ingest_service.ingest_pdf = AsyncMock(return_value=IngestResponse(
+        mock_ingest_service.return_value = IngestResponse(
             results=[
                 IngestResult(
                     filename="test.pdf",
@@ -689,7 +791,7 @@ class TestBGE_M3IngestEndpoints:
                     embedding_types=[]
                 )
             ]
-        ))
+        )
         
         pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
         

@@ -4,6 +4,7 @@ Query endpoints for the RAG system
 
 import asyncio
 import json
+import time
 import uuid
 from typing import List, Optional, Dict, Any
 
@@ -632,6 +633,198 @@ async def query_rag_stream(
 
     except Exception as e:
         logger.error(f"Error streaming query: {e}")
+        error_response = {
+            "status": "error",
+            "query": query,
+            "error": str(e),
+            "session_id": session_id,
+        }
+        yield f"data: {json.dumps(error_response)}\n\n"
+
+
+@router.post("/query-bge-m3/stream")
+async def query_bge_m3_stream(
+    request: dict,
+    qdrant_client: QdrantClientDep,
+    image_storage: ImageStorageDep,
+    settings: SettingsDep,
+    search_service: SearchServiceDep,
+):
+    """
+    BGE-M3 specific query endpoint with streaming response
+    
+    Args:
+        request: JSON request containing query and parameters
+        qdrant_client: Qdrant client
+        image_storage: Image storage service
+        settings: Application settings
+        search_service: Search service
+    
+    Yields:
+        Server-sent events with streaming response
+    """
+    # Extract parameters from request
+    query = request.get("query", "")
+    session_id = request.get("session_id", str(uuid.uuid4()))
+    top_k = request.get("top_k", 5)
+    score_threshold = request.get("score_threshold", 0.5)
+    search_mode = request.get("search_mode", "hybrid")
+    alpha = request.get("alpha", 0.5)
+    beta = request.get("beta", 0.3)
+    gamma = request.get("gamma", 0.2)
+    metadata_filters = request.get("metadata_filters", None)
+    include_images = request.get("include_images", True)
+    page = request.get("page", 1)
+    page_size = request.get("page_size", 10)
+    use_vlm = request.get("use_vlm", False)
+    use_images = request.get("use_images", True)
+
+    if not query.strip():
+        yield f"data: {json.dumps({'error': 'Query cannot be empty'})}\n\n"
+        return
+
+    try:
+        # Initialize search service
+        search_service = SearchService(qdrant_client, image_storage, settings)
+
+        if not search_service.bge_m3_service:
+            yield f"data: {json.dumps({'error': 'BGE-M3 service is not available'})}\n\n"
+            return
+
+        yield 'data: {"status": "processing", "message": "Processing BGE-M3 query..."}\n\n'
+        
+        # Generate BGE-M3 embeddings
+        yield 'data: {"status": "embeddings", "message": "Generating BGE-M3 embeddings..."}\n\n'
+        
+        embeddings_start = time.time()
+        bge_m3_embeddings = await search_service.get_bge_m3_embeddings(query)
+        embeddings_time = time.time() - embeddings_start
+        
+        if not bge_m3_embeddings or not any(bge_m3_embeddings.values()):
+            yield f"data: {json.dumps({'error': 'Failed to generate BGE-M3 embeddings'})}\n\n"
+            return
+        
+        yield 'data: {"status": "embeddings_complete", "message": "BGE-M3 embeddings generated successfully"}\n\n'
+        
+        # Perform BGE-M3 search
+        yield 'data: {"status": "searching", "message": "Performing BGE-M3 search..."}\n\n'
+        
+        search_start = time.time()
+        
+        if search_mode == "hybrid":
+            search_results = await search_service.bge_m3_hybrid_search(
+                query=query,
+                search_strategy="hybrid",
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
+                top_k=top_k,
+                score_threshold=score_threshold,
+                metadata_filters=metadata_filters,
+                include_images=include_images,
+                session_id=session_id,
+                page=page,
+                page_size=page_size,
+            )
+        elif search_mode == "dense":
+            search_results = await search_service.bge_m3_dense_search(
+                query=query,
+                top_k=top_k,
+                score_threshold=score_threshold,
+                metadata_filters=metadata_filters,
+                session_id=session_id,
+                page=page,
+                page_size=page_size,
+            )
+        elif search_mode == "sparse":
+            search_results = await search_service.bge_m3_sparse_search(
+                query=query,
+                top_k=top_k,
+                score_threshold=score_threshold,
+                metadata_filters=metadata_filters,
+                session_id=session_id,
+                page=page,
+                page_size=page_size,
+            )
+        elif search_mode == "multivector":
+            search_results = await search_service.bge_m3_multivector_search(
+                query=query,
+                strategy="max_sim",
+                top_k=top_k,
+                score_threshold=score_threshold,
+                metadata_filters=metadata_filters,
+                session_id=session_id,
+                page=page,
+                page_size=page_size,
+            )
+        else:
+            yield f"data: {json.dumps({'error': f'Unsupported search mode: {search_mode}'})}\n\n"
+            return
+        
+        search_time = time.time() - search_start
+        
+        # Generate response
+        response_text = ""
+        if use_vlm:
+            yield 'data: {"status": "generating", "message": "Generating response with VLM..."}\n\n'
+            
+            vlm_service = VLMService()
+            try:
+                vlm_response = await vlm_service.generate_response_with_vlm(
+                    query=query,
+                    search_results=search_results,
+                    use_images=use_images,
+                    max_context_length=4000,
+                )
+                response_text = vlm_response.response
+            except Exception as e:
+                logger.error(f"Error generating VLM response: {e}")
+                response_text = f"⚠️ Error generating VLM response: {str(e)}"
+        else:
+            if search_results:
+                response_text = f"Found {len(search_results)} BGE-M3 results for your query '{query}' using {search_mode} mode."
+            else:
+                response_text = f"No BGE-M3 results found for your query '{query}'."
+        
+        # Stream response
+        chunks = _split_response_into_chunks(response_text)
+        for i, chunk in enumerate(chunks):
+            chunk_data = {
+                "type": "text",
+                "content": chunk,
+                "chunk_index": i,
+                "total_chunks": len(chunks),
+            }
+            yield f"data: {json.dumps(chunk_data)}\n\n"
+        
+        # Send final response
+        final_response = {
+            "status": "completed",
+            "query": query,
+            "session_id": session_id,
+            "total_results": len(search_results),
+            "search_mode": search_mode,
+            "metadata_filters": metadata_filters,
+            "page": page,
+            "page_size": page_size,
+            "vlm_used": use_vlm,
+            "image_context_included": use_images,
+            "processing_time": embeddings_time + search_time,
+            "embedding_generation_time": embeddings_time,
+            "search_time": search_time,
+            "embedding_info": {
+                "dense_vector_length": len(bge_m3_embeddings.get("dense", [])),
+                "sparse_vector_length": len(bge_m3_embeddings.get("sparse", {})),
+                "multivector_count": len(bge_m3_embeddings.get("multivector", [])),
+                "vector_types": list(bge_m3_embeddings.keys()),
+                "cache_hit": bge_m3_embeddings.get("cache_hit", False)
+            }
+        }
+        
+        yield f"data: {json.dumps(final_response)}\n\n"
+        
+    except Exception as e:
+        logger.error(f"Error in BGE-M3 streaming query: {e}")
         error_response = {
             "status": "error",
             "query": query,

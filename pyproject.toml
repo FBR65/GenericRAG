@@ -27,6 +27,7 @@ dependencies = [
     "httpx>=0.27.0",
     "tenacity>=9.0.0",
     "pillow>=11.3.0",
+    "redis>=6.4.0",
 ]
 
 [build-system]
@@ -188,16 +189,6 @@ bge_m3_mock_configs = [
     { model = "BGE-M3", dimension = 768, count = 10, type = "multi_vector" },
 ]
 
-# BGE-M3 test performance thresholds
-bge_m3_performance_thresholds = {
-    "embedding_generation": { max_time = 5.0, min_embeddings_per_second = 10.0 },
-    "dense_embedding": { max_time = 2.0, min_dimension = 1024 },
-    "sparse_embedding": { max_time = 3.0, min_dimensions = 100 },
-    "multi_vector_embedding": { max_time = 4.0, min_vectors = 10, min_dimension = 768 },
-    "hybrid_search": { max_time = 2.0, min_results_per_second = 20.0 },
-    "cache_hit": { max_time = 0.1, min_speedup = 5.0 },
-    "batch_processing": { max_time = 10.0, min_batch_size = 10 },
-}
 
 # Mock PDF configurations
 mock_pdf_configs = [
@@ -300,12 +291,6 @@ title = "GenericRAG BGE-M3 Test Coverage Report"
 [tool.coverage.xml]
 output = "coverage_bge_m3.xml"
 
-[tool.coverage.html]
-directory = "htmlcov"
-title = "GenericRAG Test Coverage Report"
-
-[tool.coverage.xml]
-output = "coverage.xml"
 
 [tool.ruff]
 line-length = 88

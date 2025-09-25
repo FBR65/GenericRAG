@@ -266,7 +266,7 @@ async def ingest_bge_m3(
             / f"{uuid.uuid4()}_hierarchical.json"
         )
         with open(json_output_path, "w", encoding="utf-8") as f:
-            json.dump(extraction_result.dict(), f, ensure_ascii=False, indent=2)
+            json.dump(extraction_result.model_dump(), f, ensure_ascii=False, indent=2)
 
         # Store JSON path in Qdrant for reference
         json_chunk = {
@@ -381,9 +381,9 @@ async def ingest_pdf(
     qdrant_client: QdrantClientDep,
     image_storage: ImageStorageDep,
     settings: SettingsDep,
-    session_id: Optional[str] = None,
     search_service: SearchServiceDep,
     file: UploadFile = File(...),
+    session_id: Optional[str] = None,
     use_bge_m3: bool = False,
     embedding_types: str = "all",
     include_dense: bool = True,
@@ -601,7 +601,7 @@ async def ingest_pdf(
             / f"{uuid.uuid4()}_hierarchical.json"
         )
         with open(json_output_path, "w", encoding="utf-8") as f:
-            json.dump(extraction_result.dict(), f, ensure_ascii=False, indent=2)
+            json.dump(extraction_result.model_dump(), f, ensure_ascii=False, indent=2)
 
         # Store JSON path in Qdrant for reference
         json_chunk = {
@@ -710,9 +710,9 @@ async def ingest_multiple_pdfs(
     qdrant_client: QdrantClientDep,
     image_storage: ImageStorageDep,
     settings: SettingsDep,
-    session_id: Optional[str] = None,
     search_service: SearchServiceDep,
     files: List[UploadFile] = File(...),
+    session_id: Optional[str] = None,
     use_bge_m3: bool = False,
     embedding_types: str = "all",
     include_dense: bool = True,
@@ -983,7 +983,7 @@ async def ingest_multiple_pdfs(
                     / f"{uuid.uuid4()}_hierarchical.json"
                 )
                 with open(json_output_path, "w", encoding="utf-8") as f:
-                    json.dump(extraction_result.dict(), f, ensure_ascii=False, indent=2)
+                    json.dump(extraction_result.model_dump(), f, ensure_ascii=False, indent=2)
 
                 # Store JSON path in Qdrant for reference
                 json_chunk = {

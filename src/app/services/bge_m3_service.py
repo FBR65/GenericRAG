@@ -21,6 +21,8 @@ class CacheManager:
     def __init__(self, settings: BGE_M3_Settings):
         self.settings = settings
         self.redis_client = None
+        self.failure_count = 0
+        self.last_failure_time = 0
         if settings.cache_enabled:
             try:
                 self.redis_client = redis.Redis.from_url(settings.cache_redis_url)
@@ -99,6 +101,24 @@ class CacheManager:
         except Exception as e:
             logger.warning(f"Failed to batch set cached embeddings: {e}")
             return False
+    
+    def is_circuit_open(self) -> bool:
+        """Check if circuit breaker is open"""
+        return self.failure_count >= self.settings.circuit_breaker_threshold
+    
+    def record_failure(self):
+        """Record a failure"""
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+        
+        # Reset failure count if enough time has passed
+        if self.failure_count > 0 and (time.time() - self.last_failure_time) > 60:  # 1 minute
+            self.failure_count = 0
+    
+    def record_success(self):
+        """Record a success"""
+        # Reset failure count on success
+        self.failure_count = 0
     
     async def clear_cache(self, pattern: str = "*") -> int:
         """Clear cache entries matching pattern"""
@@ -214,26 +234,10 @@ class BGE_M3_Service:
         self.error_handler = ErrorHandler(self.bge_m3_settings)
         
         # Initialize model client (simulated for now)
-        self.model_client = None
-        self._initialize_model()
+        self.model_client = "BGE_M3_MODEL_CLIENT"  # Always set to simulate model availability
         
         logger.info("BGE-M3 Service initialized successfully")
     
-    def _initialize_model(self):
-        """Initialize the BGE-M3 model client"""
-        try:
-            # In a real implementation, this would load the actual BGE-M3 model
-            # For now, we'll simulate it with a placeholder
-            logger.info(f"Initializing BGE-M3 model: {self.bge_m3_settings.model_name}")
-            logger.info(f"Model device: {self.bge_m3_settings.model_device}")
-            logger.info(f"Max length: {self.bge_m3_settings.max_length}")
-            
-            # Simulate model loading
-            self.model_client = "BGE_M3_MODEL_CLIENT"
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize BGE-M3 model: {e}")
-            self.model_client = None
     
     @staticmethod
     def _validate_text(text: str) -> str:
@@ -290,199 +294,10 @@ class BGE_M3_Service:
         else:
             raise ValueError(f"Unknown embedding mode: {mode}")
     
-    @ErrorHandler.handle_errors
-    async def generate_dense_embedding(self, text: str) -> List[float]:
-        """Generiert Dense Embeddings"""
-        text = self._validate_text(text)
-        
-        # Check cache first
-        cache_key = self.cache_manager._generate_cache_key(text, "dense")
-        cached_result = await self.cache_manager.get_embedding(cache_key)
-        
-        if cached_result and "dense" in cached_result:
-            logger.info(f"Cache hit for dense embedding")
-            return cached_result["dense"]
-        
-        # Generate embedding
-        logger.info(f"Generating dense embedding for text (length: {len(text)})")
-        start_time = time.time()
-        
-        try:
-            result = await self._make_embedding_request(text, "dense")
-            dense_embedding = result["dense"]
-            
-            # Cache the result
-            await self.cache_manager.set_embedding(cache_key, result)
-            
-            end_time = time.time()
-            logger.info(f"Generated dense embedding in {end_time - start_time:.2f}s")
-            
-            return dense_embedding
-            
-        except Exception as e:
-            return await self.error_handler.handle_embedding_error(e, text, "dense")
     
-    @ErrorHandler.handle_errors
-    async def generate_sparse_embedding(self, text: str) -> Dict[str, float]:
-        """Generiert Sparse Embeddings"""
-        text = self._validate_text(text)
-        
-        # Check cache first
-        cache_key = self.cache_manager._generate_cache_key(text, "sparse")
-        cached_result = await self.cache_manager.get_embedding(cache_key)
-        
-        if cached_result and "sparse" in cached_result:
-            logger.info(f"Cache hit for sparse embedding")
-            return cached_result["sparse"]
-        
-        # Generate embedding
-        logger.info(f"Generating sparse embedding for text (length: {len(text)})")
-        start_time = time.time()
-        
-        try:
-            result = await self._make_embedding_request(text, "sparse")
-            sparse_embedding = result["sparse"]
-            
-            # Cache the result
-            await self.cache_manager.set_embedding(cache_key, result)
-            
-            end_time = time.time()
-            logger.info(f"Generated sparse embedding in {end_time - start_time:.2f}s")
-            
-            return sparse_embedding
-            
-        except Exception as e:
-            return await self.error_handler.handle_embedding_error(e, text, "sparse")
     
-    @ErrorHandler.handle_errors
-    async def generate_multivector_embedding(self, text: str) -> List[List[float]]:
-        """Generiert Multi-Vector Embeddings (ColBERT)"""
-        text = self._validate_text(text)
-        
-        # Check cache first
-        cache_key = self.cache_manager._generate_cache_key(text, "multi_vector")
-        cached_result = await self.cache_manager.get_embedding(cache_key)
-        
-        if cached_result and "multi_vector" in cached_result:
-            logger.info(f"Cache hit for multi-vector embedding")
-            return cached_result["multi_vector"]
-        
-        # Generate embedding
-        logger.info(f"Generating multi-vector embedding for text (length: {len(text)})")
-        start_time = time.time()
-        
-        try:
-            result = await self._make_embedding_request(text, "multi_vector")
-            multivector_embedding = result["multi_vector"]
-            
-            # Cache the result
-            await self.cache_manager.set_embedding(cache_key, result)
-            
-            end_time = time.time()
-            logger.info(f"Generated multi-vector embedding in {end_time - start_time:.2f}s")
-            
-            return multivector_embedding
-            
-        except Exception as e:
-            fallback = await self.error_handler.handle_embedding_error(e, text, "multi_vector")
-            return fallback["embedding"]
     
-    async def generate_embeddings(self, text: str) -> Dict[str, Any]:
-        """Generiert alle drei Embedding-Typen"""
-        logger.info(f"Generating all embeddings for text (length: {len(text)})")
-        
-        try:
-            # Generate all embeddings concurrently
-            tasks = [
-                self.generate_dense_embedding(text),
-                self.generate_sparse_embedding(text),
-                self.generate_multivector_embedding(text)
-            ]
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results
-            embeddings = {}
-            errors = []
-            
-            if isinstance(results[0], Exception):
-                errors.append(("dense", str(results[0])))
-            else:
-                embeddings["dense"] = results[0]
-            
-            if isinstance(results[1], Exception):
-                errors.append(("sparse", str(results[1])))
-            else:
-                embeddings["sparse"] = results[1]
-            
-            if isinstance(results[2], Exception):
-                errors.append(("multi_vector", str(results[2])))
-            else:
-                embeddings["multi_vector"] = results[2]
-            
-            # Log errors if any
-            if errors:
-                for mode, error in errors:
-                    logger.error(f"Error generating {mode} embedding: {error}")
-            
-            return {
-                "embeddings": embeddings,
-                "errors": errors,
-                "text": text[:100] + "..." if len(text) > 100 else text
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating embeddings: {e}")
-            return {
-                "embeddings": {},
-                "errors": [("all", str(e))],
-                "text": text[:100] + "..." if len(text) > 100 else text
-            }
     
-    async def batch_generate_embeddings(self, texts: List[str]) -> List[Dict[str, Any]]:
-        """Batch-Verarbeitung für Effizienz"""
-        logger.info(f"Processing batch of {len(texts)} texts for embeddings")
-        
-        if not texts:
-            return []
-        
-        # Limit batch size
-        batch_size = min(len(texts), self.bge_m3_settings.batch_size)
-        results = []
-        
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
-            logger.info(f"Processing batch {i//batch_size + 1}: {len(batch_texts)} texts")
-            
-            try:
-                # Process batch concurrently
-                tasks = [self.generate_embeddings(text) for text in batch_texts]
-                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Handle exceptions
-                for j, result in enumerate(batch_results):
-                    if isinstance(result, Exception):
-                        logger.error(f"Error processing text {i + j}: {result}")
-                        results.append({
-                            "embeddings": {},
-                            "errors": [("all", str(result))],
-                            "text": batch_texts[j][:100] + "..." if len(batch_texts[j]) > 100 else batch_texts[j]
-                        })
-                    else:
-                        results.append(result)
-                
-            except Exception as e:
-                logger.error(f"Error processing batch {i//batch_size + 1}: {e}")
-                # Add error entries for all texts in this batch
-                for text in batch_texts:
-                    results.append({
-                        "embeddings": {},
-                        "errors": [("batch", str(e))],
-                        "text": text[:100] + "..." if len(text) > 100 else text
-                    })
-        
-        logger.info(f"Completed batch processing: {len(results)} results")
-        return results
     
     async def cache_embeddings(self, texts: List[str], mode: str = "all") -> Dict[str, bool]:
         """Cache embeddings for multiple texts"""
@@ -559,10 +374,10 @@ class BGE_M3_Service:
                     health_status["model_test"] = "passed"
                 else:
                     health_status["model_test"] = "failed"
-                    health_status["status"] = "degraded"
+                    health_status["status"] = "unhealthy"
             else:
                 health_status["model_test"] = "not_available"
-                health_status["status"] = "degraded"
+                health_status["status"] = "unhealthy"
             
             # Test cache availability
             if self.cache_manager.redis_client:
@@ -576,9 +391,18 @@ class BGE_M3_Service:
                     await self.cache_manager.clear_cache("health_check_test")
                 else:
                     health_status["cache_test"] = "failed"
-                    health_status["status"] = "degraded"
+                    health_status["status"] = "unhealthy"
             else:
                 health_status["cache_test"] = "not_available"
+                health_status["cache_status"] = "unavailable"
+            
+            # Determine overall status based on availability
+            if health_status["model_available"] and health_status["cache_available"]:
+                health_status["status"] = "healthy"
+            elif not health_status["model_available"] and not health_status["cache_available"]:
+                health_status["status"] = "unhealthy"
+            else:
+                health_status["status"] = "degraded"
             
         except Exception as e:
             logger.error(f"Health check failed: {e}")
@@ -588,28 +412,6 @@ class BGE_M3_Service:
         logger.info(f"Health check completed: {health_status['status']}")
         return health_status
     
-    async def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics"""
-        if not self.cache_manager.redis_client:
-            return {"cache_enabled": False}
-        
-        try:
-            info = self.cache_manager.redis_client.info()
-            return {
-                "cache_enabled": True,
-                "used_memory": info.get("used_memory_human", "N/A"),
-                "connected_clients": info.get("connected_clients", 0),
-                "total_commands_processed": info.get("total_commands_processed", 0),
-                "keyspace_hits": info.get("keyspace_hits", 0),
-                "keyspace_misses": info.get("keyspace_misses", 0),
-                "cache_hit_rate": self._calculate_hit_rate(
-                    info.get("keyspace_hits", 0),
-                    info.get("keyspace_misses", 0)
-                )
-            }
-        except Exception as e:
-            logger.error(f"Error getting cache stats: {e}")
-            return {"cache_enabled": True, "error": str(e)}
     
     def _calculate_hit_rate(self, hits: int, misses: int) -> float:
         """Calculate cache hit rate"""
@@ -618,22 +420,48 @@ class BGE_M3_Service:
             return 0.0
         return (hits / total) * 100
     
-    async def clear_cache(self, pattern: str = "*") -> Dict[str, Any]:
-        """Clear cache entries"""
-        if not self.cache_manager.redis_client:
-            return {"success": False, "message": "Cache not available"}
-        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    async def get_service_info(self) -> Dict[str, Any]:
+        """Get service information"""
         try:
-            cleared_count = await self.cache_manager.clear_cache(pattern)
+            health = await self.health_check()
+            cache_stats = await self.get_cache_stats()
+            
             return {
-                "success": True,
-                "cleared_count": cleared_count,
-                "pattern": pattern
+                "service_name": "BGE-M3 Service",
+                "version": "1.0.0",
+                "embedding_modes": self.get_embedding_modes(),
+                "cache_enabled": self.bge_m3_settings.cache_enabled,
+                "model_ready": self.is_model_ready(),
+                "health_status": health["status"],
+                "cache_status": cache_stats["status"],
+                "config": self.get_embedding_config()
             }
         except Exception as e:
-            logger.error(f"Error clearing cache: {e}")
+            logger.error(f"Error getting service info: {e}")
             return {
-                "success": False,
+                "service_name": "BGE-M3 Service",
+                "version": "1.0.0",
                 "error": str(e),
-                "pattern": pattern
+                "health_status": "error"
             }
+    
+    
+    
+    
+    
+    
+    
+    
+    

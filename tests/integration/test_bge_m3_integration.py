@@ -27,6 +27,7 @@ from src.app.models.schemas import (
     IngestResult,
     SessionInfo
 )
+from qdrant_client import models
 from src.app.settings import Settings, BGE_M3_Settings
 
 
@@ -103,10 +104,10 @@ class TestBGE_M3Integration:
             return service
 
     @pytest.fixture
-    def qdrant_utils(self, mock_qdrant_client):
+    def qdrant_utils(self, mock_qdrant_client, mock_settings):
         """Create Qdrant utils instance"""
         with patch('src.app.utils.qdrant_utils.QdrantClient', return_value=mock_qdrant_client):
-            return BGE_M3_QdrantUtils(collection_name="test_collection")
+            return BGE_M3_QdrantUtils(mock_settings)
 
     @pytest.fixture
     def search_service(self, mock_settings, bge_m3_service, qdrant_utils):
@@ -167,76 +168,88 @@ class TestBGE_M3ServiceIntegration:
     """Integration tests for BGE-M3 Service"""
 
     @pytest.mark.asyncio
-    async def test_bge_m3_service_initialization(self, bge_m3_service):
+    async def test_bge_m3_service_initialization(self, mock_settings, mock_bge_m3_settings, mock_redis_client):
         """Test BGE-M3 service initialization"""
-        assert bge_m3_service.settings is not None
-        assert bge_m3_service.bge_m3_settings is not None
-        assert bge_m3_service.cache_manager is not None
-        assert bge_m3_service.error_handler is not None
-        assert bge_m3_service.model_client is not None
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            assert service.settings is not None
+            assert service.bge_m3_settings is not None
+            assert service.cache_manager is not None
+            assert service.error_handler is not None
+            assert service.model_client is not None
 
     @pytest.mark.asyncio
-    async def test_generate_all_embeddings(self, bge_m3_service, test_documents):
+    async def test_generate_all_embeddings(self, mock_settings, mock_bge_m3_settings, mock_redis_client, test_documents):
         """Test generating all three types of embeddings"""
-        results = []
-        for doc in test_documents:
-            result = await bge_m3_service.generate_embeddings(doc["content"])
-            results.append(result)
-        
-        assert len(results) == len(test_documents)
-        for result in results:
-            assert "embeddings" in result
-            assert "errors" in result
-            assert "text" in result
-            assert "dense" in result["embeddings"]
-            assert "sparse" in result["embeddings"]
-            assert "multi_vector" in result["embeddings"]
-            assert len(result["errors"]) == 0
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            results = []
+            for doc in test_documents:
+                result = await service.generate_embeddings(doc["content"])
+                results.append(result)
+    
+            assert len(results) == len(test_documents)
+            for result in results:
+                assert "embeddings" in result
+                assert "errors" in result
+                assert "text" in result
+                assert "dense" in result["embeddings"]
+                assert "sparse" in result["embeddings"]
+                assert "multi_vector" in result["embeddings"]
+                assert len(result["errors"]) == 0
 
     @pytest.mark.asyncio
-    async def test_generate_embeddings_with_caching(self, bge_m3_service, test_documents):
+    async def test_generate_embeddings_with_caching(self, mock_settings, mock_bge_m3_settings, mock_redis_client, test_documents):
         """Test embedding generation with caching"""
-        # First call should generate embeddings
-        result1 = await bge_m3_service.generate_embeddings(test_documents[0]["content"])
-        
-        # Second call should use cache
-        result2 = await bge_m3_service.generate_embeddings(test_documents[0]["content"])
-        
-        # Results should be the same
-        assert result1["embeddings"]["dense"] == result2["embeddings"]["dense"]
-        assert result1["embeddings"]["sparse"] == result2["embeddings"]["sparse"]
-        assert result1["embeddings"]["multi_vector"] == result2["embeddings"]["multi_vector"]
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            # First call should generate embeddings
+            result1 = await service.generate_embeddings(test_documents[0]["content"])
+    
+            # Second call should use cache
+            result2 = await service.generate_embeddings(test_documents[0]["content"])
+    
+            # Results should be the same
+            assert result1["embeddings"]["dense"] == result2["embeddings"]["dense"]
+            assert result1["embeddings"]["sparse"] == result2["embeddings"]["sparse"]
+            assert result1["embeddings"]["multi_vector"] == result2["embeddings"]["multi_vector"]
 
     @pytest.mark.asyncio
-    async def test_generate_embeddings_error_handling(self, bge_m3_service):
+    async def test_generate_embeddings_error_handling(self, mock_settings, mock_bge_m3_settings, mock_redis_client):
         """Test embedding generation error handling"""
-        # Test with empty text
-        result = await bge_m3_service.generate_embeddings("")
-        assert len(result["errors"]) > 0
-        assert "embeddings" in result
-
-    @pytest.mark.asyncio
-    async def test_health_check(self, bge_m3_service):
-        """Test BGE-M3 service health check"""
-        health = await bge_m3_service.health_check()
-        
-        assert "status" in health
-        assert "cache_status" in health
-        assert "model_status" in health
-        assert "error" in health
-
-    @pytest.mark.asyncio
-    async def test_batch_embedding_generation(self, bge_m3_service, test_documents):
-        """Test batch embedding generation"""
-        texts = [doc["content"] for doc in test_documents]
-        
-        results = await bge_m3_service.batch_generate_embeddings(texts)
-        
-        assert len(results) == len(texts)
-        for result in results:
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            # Test with empty text
+            result = await service.generate_embeddings("")
+            assert len(result["errors"]) > 0
             assert "embeddings" in result
-            assert "errors" in result
-            assert "text" in result
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, mock_settings, mock_bge_m3_settings, mock_redis_client):
+        """Test BGE-M3 service health check"""
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            health = await service.health_check()
+            
+            assert "status" in health
+            assert "cache_status" in health
+            assert "model_status" in health
+            assert "error" in health
+
+    @pytest.mark.asyncio
+    async def test_batch_embedding_generation(self, mock_settings, mock_bge_m3_settings, mock_redis_client, test_documents):
+        """Test batch embedding generation"""
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            texts = [doc["content"] for doc in test_documents]
+            
+            results = await service.batch_generate_embeddings(texts)
+            
+            assert len(results) == len(texts)
+            for result in results:
+                assert "embeddings" in result
+                assert "errors" in result
+                assert "text" in result
 
 
 class TestQdrantUtilsIntegration:
@@ -445,16 +458,17 @@ class TestEndToEndIntegration:
         
         # Step 2: Store embeddings in Qdrant
         for i, (doc, embedding) in enumerate(zip(test_documents, embeddings)):
-            await qdrant_utils.upsert_points(
-                points=[{
-                    "id": doc["id"],
-                    "vector": embedding["embeddings"]["dense"],
-                    "payload": {
+            await qdrant_utils.batch_upsert(
+                "test_collection",
+                [models.PointStruct(
+                    id=doc["id"],
+                    vector=embedding["embeddings"]["dense"],
+                    payload={
                         **doc["metadata"],
                         "content": doc["content"],
                         "session_id": "test-session"
                     }
-                }]
+                )]
             )
         
         # Step 3: Perform searches
@@ -532,15 +546,15 @@ class TestEndToEndIntegration:
         # Store embeddings
         start_time = time.time()
         for doc, embedding in zip(test_documents, embeddings):
-            await qdrant_utils.upsert_points([{
-                "id": doc["id"],
-                "vector": embedding["embeddings"]["dense"],
-                "payload": {
+            await qdrant_utils.batch_upsert("test_collection", [models.PointStruct(
+                id=doc["id"],
+                vector=embedding["embeddings"]["dense"],
+                payload={
                     **doc["metadata"],
                     "content": doc["content"],
                     "session_id": "test-session"
                 }
-            }])
+            )])
         storage_time = time.time() - start_time
         
         # Perform search
@@ -619,15 +633,15 @@ class TestBGE_M3PerformanceIntegration:
         # Pre-populate with documents
         for doc in test_documents:
             embedding = await bge_m3_service.generate_embeddings(doc["content"])
-            await qdrant_utils.upsert_points([{
-                "id": doc["id"],
-                "vector": embedding["embeddings"]["dense"],
-                "payload": {
+            await qdrant_utils.batch_upsert("test_collection", [models.PointStruct(
+                id=doc["id"],
+                vector=embedding["embeddings"]["dense"],
+                payload={
                     **doc["metadata"],
                     "content": doc["content"],
                     "session_id": "test-session"
                 }
-            }])
+            )])
         
         # Test search performance
         queries = ["Zoll", "Import", "Dokument", "Handel"]
@@ -652,6 +666,20 @@ class TestBGE_M3PerformanceIntegration:
 
 class TestBGE_M3ErrorHandlingIntegration:
     """Error handling integration tests"""
+
+    @pytest.fixture
+    def bge_m3_service(self, mock_settings, mock_bge_m3_settings, mock_redis_client):
+        """Create BGE-M3 service instance"""
+        with patch('src.app.services.bge_m3_service.redis.Redis.from_url', return_value=mock_redis_client):
+            service = BGE_M3_Service(mock_settings)
+            service.model_client = Mock()
+            service.model_client.generate_embeddings = AsyncMock(return_value={
+                "dense": [0.1] * mock_bge_m3_settings.dense_dimension,
+                "sparse": {str(i): 0.5 for i in range(0, 100, 10)},
+                "multi_vector": [[0.1] * mock_bge_m3_settings.multi_vector_dimension
+                               for _ in range(mock_bge_m3_settings.multi_vector_count)]
+            })
+            return service
 
     @pytest.mark.asyncio
     async def test_service_unavailable_handling(self, search_service, bge_m3_service, qdrant_utils):
