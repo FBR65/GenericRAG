@@ -5,6 +5,7 @@ Text preprocessing service for creating semantic chunks and generating embedding
 import json
 import logging
 import re
+import time
 from typing import Dict, List, Any, Optional, Tuple
 import aiohttp
 import asyncio
@@ -271,7 +272,7 @@ class TextPreprocessor:
             "page_number": page_num,
             "bbox": avg_bbox,
             "element_count": len(elements),
-            "created_at": str(asyncio.get_event_loop().time()),
+            "created_at": str(time.time()),
         }
 
         # Füge spezifische Metadaten hinzu

@@ -71,7 +71,7 @@ async def query_bge_m3(
     
     try:
         # Initialize search service
-        search_service = SearchService(qdrant_client, image_storage, settings)
+        search_service = SearchService(settings, qdrant_client=qdrant_client, image_storage=image_storage)
         
         if not search_service.bge_m3_service:
             raise HTTPException(
@@ -114,8 +114,11 @@ async def query_bge_m3(
             )
         elif request.search_mode == BGE_M3_SearchMode.DENSE:
             # Nur Dense Suche
-            search_results = await search_service.bge_m3_dense_search(
+            search_results = await search_service.search_text(
                 query=request.query,
+                use_bge_m3=True,
+                search_strategy="dense_only",
+                alpha=1.0,
                 top_k=request.top_k,
                 score_threshold=request.score_threshold,
                 metadata_filters=request.metadata_filters,
@@ -125,8 +128,11 @@ async def query_bge_m3(
             )
         elif request.search_mode == BGE_M3_SearchMode.SPARSE:
             # Nur Sparse Suche
-            search_results = await search_service.bge_m3_sparse_search(
+            search_results = await search_service.search_text(
                 query=request.query,
+                use_bge_m3=True,
+                search_strategy="sparse_only",
+                alpha=0.0,
                 top_k=request.top_k,
                 score_threshold=request.score_threshold,
                 metadata_filters=request.metadata_filters,
@@ -304,7 +310,7 @@ async def query_rag(
 
     try:
         # Initialize search service
-        search_service = SearchService(qdrant_client, image_storage, settings)
+        search_service = SearchService(settings, qdrant_client=qdrant_client, image_storage=image_storage)
 
         # Generate query embeddings
         logger.info(f"Processing query: {query}")
@@ -446,7 +452,8 @@ async def query_rag(
 
     except Exception as e:
         logger.error(f"Error querying RAG system: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Don't expose internal details in the error response
+        raise HTTPException(status_code=500, detail="Internal server error occurred while processing your request")
 
 
 @router.post("/query-stream")
@@ -496,7 +503,7 @@ async def query_rag_stream(
 
     try:
         # Initialize search service
-        search_service = SearchService(qdrant_client, image_storage, settings)
+        search_service = SearchService(settings, qdrant_client=qdrant_client, image_storage=image_storage)
 
         # Generate query embeddings
         yield 'data: {"status": "processing", "message": "Processing query..."}\n\n'
@@ -685,7 +692,7 @@ async def query_bge_m3_stream(
 
     try:
         # Initialize search service
-        search_service = SearchService(qdrant_client, image_storage, settings)
+        search_service = SearchService(settings, qdrant_client=qdrant_client, image_storage=image_storage)
 
         if not search_service.bge_m3_service:
             yield f"data: {json.dumps({'error': 'BGE-M3 service is not available'})}\n\n"
@@ -727,8 +734,11 @@ async def query_bge_m3_stream(
                 page_size=page_size,
             )
         elif search_mode == "dense":
-            search_results = await search_service.bge_m3_dense_search(
+            search_results = await search_service.search_text(
                 query=query,
+                use_bge_m3=True,
+                search_strategy="dense_only",
+                alpha=1.0,
                 top_k=top_k,
                 score_threshold=score_threshold,
                 metadata_filters=metadata_filters,
@@ -737,8 +747,11 @@ async def query_bge_m3_stream(
                 page_size=page_size,
             )
         elif search_mode == "sparse":
-            search_results = await search_service.bge_m3_sparse_search(
+            search_results = await search_service.search_text(
                 query=query,
+                use_bge_m3=True,
+                search_strategy="sparse_only",
+                alpha=0.0,
                 top_k=top_k,
                 score_threshold=score_threshold,
                 metadata_filters=metadata_filters,

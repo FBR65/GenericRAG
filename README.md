@@ -2,7 +2,7 @@
 
 A comprehensive Retrieval-Augmented Generation system featuring advanced document processing, multi-modal embeddings, hybrid search capabilities, and Vision-Language Model integration with DSPy/GEPA optimization.
 
-## 🚀 New Features & Enhancements
+## New Features & Enhancements
 
 ### Latest Updates
 - **Enhanced PDF Processing**: Improved text, table, and image extraction

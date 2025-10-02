@@ -269,6 +269,7 @@ async def hybrid_search_with_retry(
             points=[
                 models.ScoredPoint(
                     id=result["id"],
+                    version=1,  # Add required version field
                     score=result["score"],
                     payload=result["payload"],
                     embedding=result.get("embedding", []),
@@ -290,6 +291,11 @@ async def hybrid_search_with_retry(
         raise
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True,
+)
 async def bge_m3_hybrid_search_with_retry(
     qdrant_client: AsyncQdrantClient,
     collection_name: str,
@@ -438,21 +444,28 @@ async def bge_m3_hybrid_search_with_retry(
             pre_filtered_results.values(), key=lambda x: x["score"], reverse=True
         )[:limit]
 
-        # Convert to simple response format that matches expected structure
-        final_response = {
-            "points": [
-                {
-                    "id": result["id"],
-                    "score": result["score"],
-                    "payload": result["payload"],
-                    "vector": {},
-                    "order_value": None
-                }
+        # Create a simple response object that mimics QueryResponse
+        class SimpleQueryResponse:
+            def __init__(self, points):
+                self.points = points
+        
+        # Convert to QueryResponse format
+        final_response = SimpleQueryResponse(
+            points=[
+                models.ScoredPoint(
+                    id=result["id"],
+                    version=1,  # Add required version field
+                    score=result["score"],
+                    payload=result["payload"],
+                    vector=result.get("vector", {}),
+                    metadata=result.get("metadata", {}),
+                    document=result.get("document", "")
+                )
                 for result in final_sorted
             ]
-        }
+        )
 
-        logger.debug(f"BGE-M3 hybrid search found {len(final_response['points'])} results")
+        logger.debug(f"BGE-M3 hybrid search found {len(final_response.points)} results")
 
         return final_response
 
@@ -620,8 +633,21 @@ async def create_collection_if_not_exists(
     """
     try:
         # Check if collection exists
-        collections = await qdrant_client.get_collections()
-        collection_names = [collection.name for collection in collections.collections]
+        try:
+            collections = await qdrant_client.get_collections()
+            collection_names = [collection.name for collection in collections.collections]
+        except Exception as e:
+            logger.warning(f"Error checking collections: {e}")
+            # If we can't check collections, assume it doesn't exist
+            collection_names = []
+        
+        # Check if collection exists using get_collection
+        try:
+            await qdrant_client.get_collection(collection_name)
+            logger.info(f"BGE-M3 collection '{collection_name}' already exists")
+            return True
+        except Exception:
+            logger.info(f"Creating BGE-M3 optimized collection '{collection_name}'")
 
         if collection_name not in collection_names:
             logger.info(
@@ -711,7 +737,7 @@ async def create_hybrid_collection_if_not_exists(
                 index=sparse_index_params,
             )
 
-            # Configure multi-vector vectors (ColBERT) with MAX_SIM comparator
+            # Configure multi-vector vectors (ColBERT) with COSINE comparator
             multivector_config = None
             if enable_multivector:
                 logger.info(f"Enabling multi-vector support with {multivector_count} vectors of {multivector_dimension} dimensions")
@@ -770,47 +796,92 @@ async def create_bge_m3_collection_if_not_exists(
         config: Additional configuration parameters
     """
     try:
-        # Check if collection exists
-        collections = await qdrant_client.get_collections()
-        collection_names = [collection.name for collection in collections.collections]
-
-        if collection_name not in collection_names:
+        # Check if collection exists by trying to get it
+        try:
+            await qdrant_client.get_collection(collection_name)
+            logger.info(f"BGE-M3 collection '{collection_name}' already exists")
+            return True
+        except Exception:
             logger.info(f"Creating BGE-M3 optimized collection '{collection_name}'")
 
-            # Configure dense vectors
-            dense_config = models.VectorParams(
-                size=dense_vector_size,
-                distance=distance,
-            )
+        # If we get here, collection doesn't exist, so create it
+        collections_response = await qdrant_client.get_collections()
+        collection_names = [collection.name for collection in collections_response.collections]
 
-            # Configure sparse vectors with BGE-M3 optimization
-            if sparse_index_params is None:
-                # Optimized sparse index for BGE-M3
-                sparse_index_params = models.SparseIndexParams(
-                    on_disk=False,
+        if collection_name not in collection_names:
+            # Use custom config if provided
+            if config:
+                logger.info(f"Using custom configuration for collection '{collection_name}'")
+                # Convert the config to the proper format
+                vectors_config = {}
+                
+                if "vectors" in config:
+                    for vector_type, vector_config in config["vectors"].items():
+                        if vector_type == "dense":
+                            vectors_config["dense"] = models.VectorParams(
+                                size=vector_config.get("size", dense_vector_size),
+                                distance=vector_config.get("distance", distance)
+                            )
+                        elif vector_type == "sparse":
+                            vectors_config["sparse"] = models.SparseVectorParams(
+                                index=models.SparseIndexParams(
+                                    on_disk=vector_config.get("on_disk", False),
+                                    full_scan_threshold=vector_config.get("full_scan_threshold")
+                                )
+                            )
+                        elif vector_type == "multivector" or vector_type == "multi_vector":
+                            vectors_config["multivector"] = models.VectorParams(
+                                size=vector_config.get("size", multivector_dimension),
+                                distance=vector_config.get("distance", distance)
+                            )
+                
+                # Extract additional parameters
+                create_kwargs = {
+                    "collection_name": collection_name,
+                    "vectors_config": vectors_config
+                }
+                
+                # Add additional parameters if they exist
+                if "shards" in config:
+                    create_kwargs["shards"] = config["shards"]
+                
+                await qdrant_client.create_collection(**create_kwargs)
+            else:
+                # Use default BGE-M3 configuration
+                # Configure dense vectors
+                dense_config = models.VectorParams(
+                    size=dense_vector_size,
+                    distance=distance,
                 )
 
-            sparse_config = models.SparseVectorParams(
-                index=sparse_index_params,
-            )
+                # Configure sparse vectors with BGE-M3 optimization
+                if sparse_index_params is None:
+                    # Optimized sparse index for BGE-M3
+                    sparse_index_params = models.SparseIndexParams(
+                        on_disk=False,
+                    )
 
-            # Configure multi-vector vectors (ColBERT) with MAX_SIM comparator
-            multivector_config = models.VectorParams(
-                size=multivector_dimension,
-                distance=models.Distance.MAX_SIM,
-            )
+                sparse_config = models.SparseVectorParams(
+                    index=sparse_index_params,
+                )
 
-            # Build vectors configuration for BGE-M3
-            vectors_config = {
-                "dense": dense_config,
-                "sparse": sparse_config,
-                "multivector": multivector_config,
-            }
+                # Configure multi-vector vectors (ColBERT) with COSINE comparator
+                multivector_config = models.VectorParams(
+                    size=multivector_dimension,
+                    distance=models.Distance.COSINE,
+                )
 
-            await qdrant_client.create_collection(
-                collection_name=collection_name,
-                vectors_config=vectors_config,
-            )
+                # Build vectors configuration for BGE-M3
+                vectors_config = {
+                    "dense": dense_config,
+                    "sparse": sparse_config,
+                    "multivector": multivector_config,
+                }
+
+                await qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=vectors_config,
+                )
 
             logger.info(f"Successfully created BGE-M3 collection '{collection_name}' with all three vector types")
             return True
@@ -919,51 +990,81 @@ async def cleanup_old_points(
 
 def create_payload_filter(
     session_id: Optional[str] = None,
-    document: Optional[str] = None,
-    page_range: Optional[tuple[int, int]] = None,
+    **kwargs
 ) -> Optional[models.Filter]:
     """
     Create a payload filter for Qdrant queries
-
+    
     Args:
-        session_id: Filter by session ID
-        document: Filter by document name
-        page_range: Filter by page range (min, max)
-
+        session_id: Session ID to filter by
+        **kwargs: Additional filter criteria
+        
     Returns:
-        Filter object or None
+        Filter object or None if no filters needed
     """
-    conditions = []
-
-    if session_id:
-        conditions.append(
-            models.FieldCondition(
-                key="session_id",
-                match=models.MatchValue(value=session_id),
+    try:
+        filter_conditions = []
+        
+        # Add session ID filter if provided
+        if session_id:
+            filter_conditions.append(
+                models.FieldCondition(
+                    key="session_id",
+                    match=models.MatchValue(value=session_id),
+                )
             )
-        )
-
-    if document:
-        conditions.append(
-            models.FieldCondition(
-                key="document",
-                match=models.MatchValue(value=document),
-            )
-        )
-
-    if page_range:
-        min_page, max_page = page_range
-        conditions.append(
-            models.FieldCondition(
-                key="page",
-                range=models.Range(
-                    gte=min_page,
-                    lte=max_page,
-                ),
-            )
-        )
-
-    return models.Filter(must=conditions) if conditions else models.Filter(must=[])
+        
+        # Add additional filters from kwargs
+        for key, value in kwargs.items():
+            if key == "bbox" and isinstance(value, list) and len(value) == 4:
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key="bbox",
+                        match=models.MatchValue(value=value),
+                    )
+                )
+            elif key == "page" and isinstance(value, int):
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key="page",
+                        match=models.MatchValue(value=value),
+                    )
+                )
+            elif key == "element_type" and isinstance(value, str):
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key="element_type",
+                        match=models.MatchValue(value=value),
+                    )
+                )
+            elif key == "element_type" and isinstance(value, list):
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key="element_type",
+                        match=models.MatchAny(any=value),
+                    )
+                )
+            elif key == "must" and isinstance(value, list):
+                # Allow direct filter conditions
+                filter_conditions.extend(value)
+            elif isinstance(value, dict) and "key" in value and "match" in value:
+                # Support direct field condition format
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key=value["key"],
+                        match=value["match"],
+                    )
+                )
+        
+        # Create filter if we have conditions
+        if filter_conditions:
+            return models.Filter(must=filter_conditions)
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error creating payload filter: {e}")
+        return None
 
 
 @retry(
@@ -1792,16 +1893,24 @@ async def prepare_bge_m3_query_embeddings(
         Dictionary containing prepared embeddings
     """
     try:
-        if not query_text.strip():
+        # Validate query text
+        if not query_text or not query_text.strip():
+            logger.error("Query text cannot be empty")
             raise ValueError("Query text cannot be empty")
+        
+        # Validate search mode
+        valid_modes = ["dense", "sparse", "multivector", "hybrid"]
+        if search_mode not in valid_modes:
+            logger.error(f"Unknown search mode: {search_mode}")
+            raise ValueError(f"Unknown search mode: {search_mode}")
         
         embeddings = {}
         errors = []
         
         # Determine which embedding types to generate
-        generate_dense = dense_only or search_mode in ["dense", "hybrid"]
-        generate_sparse = sparse_only or search_mode in ["sparse", "hybrid"]
-        generate_multivector = multivector_only or search_mode in ["multivector", "hybrid"]
+        generate_dense = dense_only or (search_mode in ["dense", "hybrid"] and not sparse_only and not multivector_only)
+        generate_sparse = sparse_only or (search_mode in ["sparse", "hybrid"] and not dense_only and not multivector_only)
+        generate_multivector = multivector_only or (search_mode in ["multivector", "hybrid"] and not dense_only and not sparse_only)
         
         logger.debug(f"Preparing BGE-M3 query embeddings: dense={generate_dense}, "
                     f"sparse={generate_sparse}, multivector={generate_multivector}")
@@ -1843,8 +1952,11 @@ async def prepare_bge_m3_query_embeddings(
             for mode, error in errors:
                 logger.error(f"Error generating {mode} embedding: {error}")
         
+        
         if not embeddings:
-            raise ValueError("Unknown search mode: " + search_mode)
+            logger.warning(f"No embeddings generated for search mode: {search_mode}")
+            # Don't raise an error, return empty embeddings instead
+            return {"embeddings": {}, "errors": errors}
         
         return {
             "embeddings": embeddings,
@@ -1852,6 +1964,9 @@ async def prepare_bge_m3_query_embeddings(
             "query_text": query_text[:100] + "..." if len(query_text) > 100 else query_text
         }
         
+    except ValueError as e:
+        # Re-raise validation errors
+        raise e
     except Exception as e:
         logger.error(f"Error preparing BGE-M3 query embeddings: {e}")
         return {
@@ -2038,7 +2153,7 @@ async def bge_m3_batch_search(
             score_threshold=score_threshold,
         )
         
-        logger.debug(f"BGE-M3 batch search found {len(response['points'])} results")
+        logger.debug(f"BGE-M3 batch search found {len(response.points)} results")
         return response
         
     except Exception as e:
@@ -2259,7 +2374,7 @@ async def bge_m3_hybrid_search_with_metadata(
             enable_multivector=enable_multivector,
         )
         
-        logger.debug(f"BGE-M3 hybrid search with metadata completed: {len(response['points'])} results")
+        logger.debug(f"BGE-M3 hybrid search with metadata completed: {len(response.points)} results")
         return response
         
     except Exception as e:
@@ -2407,12 +2522,16 @@ import math
 class BGE_M3_QdrantUtils:
     """BGE-M3 Qdrant Utils wrapper class for convenience"""
     
-    def __init__(self, qdrant_client=None, settings=None):
-        """Initialize with qdrant client and optional settings"""
-        self.qdrant_client = qdrant_client
+    def __init__(self, settings=None, qdrant_client=None):
+        """Initialize with settings and optional qdrant client"""
         self.settings = settings
+        self.qdrant_client = qdrant_client
         self.bge_m3_service = None
         self._initialize_bge_m3_service()
+        
+        # Ensure qdrant_client is not None
+        if self.qdrant_client is None:
+            raise ValueError("qdrant_client cannot be None")
     
     def _initialize_bge_m3_service(self):
         """Lazy initialization of BGE-M3 Service"""
@@ -2453,7 +2572,7 @@ class BGE_M3_QdrantUtils:
         max_retries: int = 3
     ) -> Dict[str, Any]:
         """Perform hybrid search using BGE-M3 embeddings"""
-        return await bge_m3_hybrid_search_with_metadata(
+        result = await bge_m3_hybrid_search_with_metadata(
             self.qdrant_client,
             collection_name,
             query_embeddings,
@@ -2466,6 +2585,20 @@ class BGE_M3_QdrantUtils:
             score_threshold=score_threshold,
             enable_multivector=enable_multivector,
         )
+        
+        # Convert to expected format
+        return {
+            "results": [
+                {
+                    "id": point.id,
+                    "score": point.score,
+                    "payload": point.payload,
+                    "metadata": getattr(point, "metadata", {}),
+                    "document": getattr(point, "document", "")
+                }
+                for point in result.points
+            ]
+        }
     
     async def prepare_query_embeddings(
         self,
@@ -2547,6 +2680,12 @@ class BGE_M3_QdrantUtils:
                 "collection_exists": False,
                 "error": str(e)
             }
+        except Exception:
+            return {
+                "status": "unhealthy",
+                "collection_exists": False,
+                "error": "Collection not found"
+            }
     
     async def batch_upsert(
         self,
@@ -2595,22 +2734,20 @@ class BGE_M3_QdrantUtils:
         filters: Optional[Dict] = None,
         with_payload: bool = True,
         with_vectors: bool = True
-    ) -> Optional[tuple]:
+    ) -> tuple:
         """Scroll through collection"""
-        try:
-            kwargs = {
-                "collection_name": collection_name,
-                "limit": limit,
-                "with_payload": with_payload,
-                "with_vectors": with_vectors
-            }
-            
-            if offset is not None:
-                kwargs["offset"] = offset
-            
-            if filters:
-                kwargs["scroll_filter"] = create_payload_filter(**filters)
-            
-            return await self.qdrant_client.scroll(**kwargs)
-        except Exception:
-            return None
+        kwargs = {
+            "collection_name": collection_name,
+            "limit": limit,
+            "with_payload": with_payload,
+            "with_vectors": with_vectors
+        }
+        
+        if offset is not None:
+            kwargs["offset"] = offset
+        
+        if filters:
+            kwargs["scroll_filter"] = create_payload_filter(**filters)
+        
+        result = await self.qdrant_client.scroll(**kwargs)
+        return result

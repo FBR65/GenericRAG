@@ -21,6 +21,7 @@ def create_qdrant_client(settings: Settings) -> AsyncQdrantClient:
         api_key=settings.qdrant.qdrant_api_key or None,
         timeout=30,
         prefer_grpc=False,
+        check_compatibility=False,  # Disable version check to avoid incompatibility warnings
     )
 
 

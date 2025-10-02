@@ -294,8 +294,204 @@ class BGE_M3_Service:
         else:
             raise ValueError(f"Unknown embedding mode: {mode}")
     
+    async def generate_dense_embedding(self, text: str) -> List[float]:
+        """Generate dense embedding for text"""
+        text = self._validate_text(text)
+        
+        # Check cache first
+        if self.bge_m3_settings.cache_enabled:
+            cache_key = self.cache_manager._generate_cache_key(text, "dense")
+            cached_result = await self.cache_manager.get_embedding(cache_key)
+            if cached_result and "dense" in cached_result:
+                logger.info(f"Cache hit for dense embedding: {text[:50]}...")
+                return cached_result["dense"]
+        
+        # Generate embedding
+        result = await self._make_embedding_request(text, "dense")
+        
+        # Cache result
+        if self.bge_m3_settings.cache_enabled and "dense" in result:
+            await self.cache_manager.set_embedding(cache_key, result)
+        
+        return result.get("dense", [])
     
+    async def generate_sparse_embedding(self, text: str) -> Dict[str, float]:
+        """Generate sparse embedding for text"""
+        text = self._validate_text(text)
+        
+        # Check cache first
+        if self.bge_m3_settings.cache_enabled:
+            cache_key = self.cache_manager._generate_cache_key(text, "sparse")
+            cached_result = await self.cache_manager.get_embedding(cache_key)
+            if cached_result and "sparse" in cached_result:
+                logger.info(f"Cache hit for sparse embedding: {text[:50]}...")
+                return cached_result["sparse"]
+        
+        # Generate embedding
+        result = await self._make_embedding_request(text, "sparse")
+        
+        # Cache result
+        if self.bge_m3_settings.cache_enabled and "sparse" in result:
+            await self.cache_manager.set_embedding(cache_key, result)
+        
+        return result.get("sparse", {})
     
+    async def generate_multivector_embedding(self, text: str) -> List[List[float]]:
+        """Generate multivector embedding for text"""
+        text = self._validate_text(text)
+        
+        # Check cache first
+        if self.bge_m3_settings.cache_enabled:
+            cache_key = self.cache_manager._generate_cache_key(text, "multi_vector")
+            cached_result = await self.cache_manager.get_embedding(cache_key)
+            if cached_result and "multi_vector" in cached_result:
+                logger.info(f"Cache hit for multivector embedding: {text[:50]}...")
+                return cached_result["multi_vector"]
+        
+        # Generate embedding
+        result = await self._make_embedding_request(text, "multi_vector")
+        
+        # Cache result
+        if self.bge_m3_settings.cache_enabled and "multi_vector" in result:
+            await self.cache_manager.set_embedding(cache_key, result)
+        
+        return result.get("multi_vector", [])
+    
+    async def generate_embeddings(self, text: str) -> Dict[str, Any]:
+        """Generate all types of embeddings for text"""
+        text = self._validate_text(text)
+        
+        result = {
+            "embeddings": {},
+            "errors": [],
+            "text": text
+        }
+        
+        try:
+            # Generate dense embedding
+            try:
+                dense_embedding = await self.generate_dense_embedding(text)
+                result["embeddings"]["dense"] = dense_embedding
+            except Exception as e:
+                error_msg = f"Dense embedding generation failed: {str(e)}"
+                result["errors"].append(error_msg)
+                logger.error(error_msg)
+            
+            # Generate sparse embedding
+            try:
+                sparse_embedding = await self.generate_sparse_embedding(text)
+                result["embeddings"]["sparse"] = sparse_embedding
+            except Exception as e:
+                error_msg = f"Sparse embedding generation failed: {str(e)}"
+                result["errors"].append(error_msg)
+                logger.error(error_msg)
+            
+            # Generate multivector embedding
+            try:
+                multivector_embedding = await self.generate_multivector_embedding(text)
+                result["embeddings"]["multi_vector"] = multivector_embedding
+            except Exception as e:
+                error_msg = f"Multivector embedding generation failed: {str(e)}"
+                result["errors"].append(error_msg)
+                logger.error(error_msg)
+                
+        except Exception as e:
+            error_msg = f"Embedding generation failed: {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(error_msg)
+        
+        return result
+    
+    async def batch_generate_embeddings(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """Generate embeddings for multiple texts"""
+        results = []
+        
+        for text in texts:
+            try:
+                result = await self.generate_embeddings(text)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Error generating embeddings for text '{text[:50]}...': {e}")
+                results.append({
+                    "embeddings": {},
+                    "errors": [str(e)],
+                    "text": text
+                })
+        
+        return results
+    
+    def is_model_ready(self) -> bool:
+        """Check if model is ready"""
+        return self.model_client is not None
+    
+    def get_embedding_modes(self) -> List[str]:
+        """Get available embedding modes"""
+        return ["dense", "sparse", "multi_vector"]
+    
+    def get_embedding_config(self) -> Dict[str, Any]:
+        """Get embedding configuration"""
+        return {
+            "dense": {
+                "dimension": self.bge_m3_settings.dense_dimension,
+                "normalize": self.bge_m3_settings.dense_normalize
+            },
+            "sparse": {
+                "dimension": self.bge_m3_settings.sparse_dimension,
+                "normalize": self.bge_m3_settings.sparse_normalize
+            },
+            "multi_vector": {
+                "count": self.bge_m3_settings.multi_vector_count,
+                "dimension": self.bge_m3_settings.multi_vector_dimension
+            }
+        }
+    
+    def is_cache_enabled(self) -> bool:
+        """Check if cache is enabled"""
+        return self.bge_m3_settings.cache_enabled
+    
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics"""
+        if not self.cache_manager.redis_client:
+            return {
+                "status": "disabled",
+                "error": "Redis not available"
+            }
+        
+        try:
+            info = self.cache_manager.redis_client.info()
+            hits = info.get("keyspace_hits", 0)
+            misses = info.get("keyspace_misses", 0)
+            hit_rate = self._calculate_hit_rate(hits, misses)
+            
+            return {
+                "status": "enabled",
+                "hit_rate": hit_rate,
+                "hits": hits,
+                "misses": misses,
+                "total_commands": info.get("total_commands_processed", 0),
+                "memory_usage": info.get("used_memory_human", "N/A")
+            }
+        except Exception as e:
+            logger.error(f"Error getting cache stats: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    async def clear_all_cache(self) -> int:
+        """Clear all cache entries"""
+        if not self.cache_manager.redis_client:
+            return 0
+        
+        try:
+            return await self.cache_manager.clear_cache()
+        except Exception as e:
+            logger.error(f"Error clearing cache: {e}")
+            return 0
+    
+    async def process_batch(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """Process batch of texts for embeddings"""
+        return await self.batch_generate_embeddings(texts)
     
     
     

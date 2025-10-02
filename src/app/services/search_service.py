@@ -5,14 +5,14 @@ Search service for hybrid search functionality with BGE-M3 support
 import asyncio
 import aiohttp
 import time
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from loguru import logger
 
 from src.app.utils.qdrant_utils import (
     create_payload_filter,
     convert_bge_m3_sparse_to_qdrant_format,
 )
-from src.app.models.schemas import SearchResult
+from src.app.models.schemas import SearchResult, SearchResultItem
 from qdrant_client import AsyncQdrantClient
 from PIL import Image
 from qdrant_client import models
@@ -106,7 +106,7 @@ class SearchService:
 
         try:
             # Get base filter
-            base_filter = create_payload_filter(session_id=session_id)
+            base_filter = create_payload_filter(session_id=session_id) if session_id else None
 
             # Perform text search
             text_results = []
@@ -187,15 +187,14 @@ class SearchService:
         try:
             # Konvertiere BGE-M3 Sparse Format zu Qdrant Format, wenn nötig
             qdrant_sparse_vector = sparse_vector
-            if sparse_vector and isinstance(next(iter(sparse_vector.keys())), int):
-                qdrant_sparse_vector = convert_bge_m3_sparse_to_qdrant_format(sparse_vector)
+            if sparse_vector and sparse_vector.keys():
+                first_key = next(iter(sparse_vector.keys()))
+                if isinstance(first_key, int):
+                    qdrant_sparse_vector = convert_bge_m3_sparse_to_qdrant_format(sparse_vector)
             
             response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                query=models.Vector(
-                    name="dense",
-                    vector=query_embedding,
-                ),
+                query_vector=query_embedding,
                 limit=limit,
                 query_filter=query_filter,
                 with_payload=True,
@@ -247,10 +246,7 @@ class SearchService:
         try:
             response = await self.qdrant_client.query_points(
                 collection_name=self.image_collection_name,
-                query=models.Vector(
-                    name="dense",
-                    vector=query_embedding,
-                ),
+                query_vector=query_embedding,
                 limit=limit,
                 query_filter=query_filter,
                 with_payload=True,
@@ -380,20 +376,26 @@ class SearchService:
 
                 # Create search result
                 search_result = SearchResult(
-                    id=result["id"],
-                    score=result["score"],
-                    document=payload.get("document", ""),
-                    page=payload.get("page", 0),
-                    image=image,
-                    metadata={
-                        "session_id": payload.get("session_id"),
-                        "created_at": payload.get("created_at"),
-                        "search_type": result["search_type"],
-                        "combined_score": result.get("combined_score", result["score"]),
-                        "related_text": payload.get("related_text", []),
-                        "bbox": payload.get("bbox"),
-                        "element_type": payload.get("element_type"),
-                    },
+                    items=[SearchResultItem(
+                        id=result["id"],
+                        score=result["score"],
+                        document=payload.get("document", ""),
+                        page=payload.get("page", 0),
+                        image=image,
+                        metadata={
+                            "session_id": payload.get("session_id"),
+                            "created_at": payload.get("created_at"),
+                            "search_type": result["search_type"],
+                            "combined_score": result.get("combined_score", result["score"]),
+                            "related_text": payload.get("related_text", []),
+                            "bbox": payload.get("bbox"),
+                            "element_type": payload.get("element_type"),
+                        },
+                        search_type=result["search_type"],
+                        element_type=payload.get("element_type"),
+                    )],
+                    total=1,
+                    query="",
                 )
 
                 search_results.append(search_result)
@@ -785,15 +787,12 @@ class SearchService:
                 multivector_query = embeddings["multivector"]
             
             # Erstellen des Basis-Filters
-            base_filter = create_payload_filter(session_id=session_id)
+            base_filter = create_payload_filter(session_id=session_id) if session_id else None
             
             # Führe BGE-M3 hybride Suche durch
             search_response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                query=models.Vector(
-                    name="dense",
-                    vector=dense_vector,
-                ),
+                query_vector=dense_vector,
                 limit=top_k,
                 query_filter=base_filter,
                 with_payload=True,
@@ -814,21 +813,27 @@ class SearchService:
             for result in formatted_results:
                 # Erstelle SearchResult-Objekt
                 search_result = SearchResult(
-                    id=result["id"],
-                    score=result.get("score", 0.0),
-                    document=result.get("payload", {}).get("document", ""),
-                    page=result.get("payload", {}).get("page", 0),
-                    image=None,  # Wird später hinzugefügt
-                    metadata={
-                        "session_id": result.get("payload", {}).get("session_id"),
-                        "created_at": result.get("payload", {}).get("created_at"),
-                        "search_type": "bge_m3_hybrid",
-                        "confidence": result.get("confidence", "low"),
-                        "vector_types": result.get("payload", {}).get("vector_types", []),
-                        "element_type": result.get("payload", {}).get("element_type"),
-                        "document": result.get("payload", {}).get("document"),
-                        "page": result.get("payload", {}).get("page"),
-                    },
+                    items=[SearchResultItem(
+                        id=result["id"],
+                        score=result.get("score", 0.0),
+                        document=result.get("payload", {}).get("document", ""),
+                        page=result.get("payload", {}).get("page", 0),
+                        image=None,  # Wird später hinzugefügt
+                        metadata={
+                            "session_id": result.get("payload", {}).get("session_id"),
+                            "created_at": result.get("payload", {}).get("created_at"),
+                            "search_type": "bge_m3_hybrid",
+                            "confidence": result.get("confidence", "low"),
+                            "vector_types": result.get("payload", {}).get("vector_types", []),
+                            "element_type": result.get("payload", {}).get("element_type"),
+                            "document": result.get("payload", {}).get("document"),
+                            "page": result.get("payload", {}).get("page"),
+                        },
+                        search_type="bge_m3_hybrid",
+                        element_type=result.get("payload", {}).get("element_type"),
+                    )],
+                    total=1,
+                    query="",
                 )
                 search_results.append(search_result)
             
@@ -881,15 +886,12 @@ class SearchService:
                 return []
             
             # Erstellen des Basis-Filters
-            base_filter = create_payload_filter(session_id=session_id)
+            base_filter = create_payload_filter(session_id=session_id) if session_id else None
             
             # Führe Multi-Vector Suche durch
             search_response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                query=models.Vector(
-                    name="multivector",
-                    vector=multivector_query[0] if multivector_query else [],
-                ),
+                query_vector=multivector_query[0] if multivector_query else [],
                 limit=top_k,
                 query_filter=base_filter,
                 with_payload=True,
@@ -910,22 +912,28 @@ class SearchService:
             for result in formatted_results:
                 # Erstelle SearchResult-Objekt
                 search_result = SearchResult(
-                    id=result["id"],
-                    score=result.get("score", 0.0),
-                    document=result.get("payload", {}).get("document", ""),
-                    page=result.get("payload", {}).get("page", 0),
-                    image=None,  # Wird später hinzugefügt
-                    metadata={
-                        "session_id": result.get("payload", {}).get("session_id"),
-                        "created_at": result.get("payload", {}).get("created_at"),
-                        "search_type": "bge_m3_multivector",
-                        "confidence": result.get("confidence", "low"),
-                        "vector_types": result.get("payload", {}).get("vector_types", []),
-                        "element_type": result.get("payload", {}).get("element_type"),
-                        "document": result.get("payload", {}).get("document"),
-                        "page": result.get("payload", {}).get("page"),
-                        "multivector_strategy": strategy,
-                    },
+                    items=[SearchResultItem(
+                        id=result["id"],
+                        score=result.get("score", 0.0),
+                        document=result.get("payload", {}).get("document", ""),
+                        page=result.get("payload", {}).get("page", 0),
+                        image=None,  # Wird später hinzugefügt
+                        metadata={
+                            "session_id": result.get("payload", {}).get("session_id"),
+                            "created_at": result.get("payload", {}).get("created_at"),
+                            "search_type": "bge_m3_multivector",
+                            "confidence": result.get("confidence", "low"),
+                            "vector_types": result.get("payload", {}).get("vector_types", []),
+                            "element_type": result.get("payload", {}).get("element_type"),
+                            "document": result.get("payload", {}).get("document"),
+                            "page": result.get("payload", {}).get("page"),
+                            "multivector_strategy": strategy,
+                        },
+                        search_type="bge_m3_multivector",
+                        element_type=result.get("payload", {}).get("element_type"),
+                    )],
+                    total=1,
+                    query="",
                 )
                 search_results.append(search_result)
             
@@ -990,7 +998,7 @@ class SearchService:
                 alpha=alpha,
                 limit=top_k,
                 score_threshold=score_threshold,
-                query_filter=create_payload_filter(session_id=session_id),
+                query_filter=create_payload_filter(session_id=session_id) if session_id else None,
                 metadata_filters=metadata_filters,
             )
             
@@ -1050,7 +1058,7 @@ class SearchService:
                 text_query=query,
                 limit=top_k,
                 score_threshold=score_threshold,
-                query_filter=create_payload_filter(session_id=session_id),
+                query_filter=create_payload_filter(session_id=session_id) if session_id else None,
                 metadata_filters=metadata_filters,
             )
             
@@ -1307,57 +1315,6 @@ class SearchService:
             logger.error(f"Error calculating vector completeness: {e}")
             return 0.0
     
-    async def get_bge_m3_embeddings(self, query_text: str, mode: str) -> Dict[str, Any]:
-        """Get BGE-M3 embeddings for a specific mode"""
-        try:
-            if not self.bge_m3_service:
-                return {"error": "BGE-M3 service not available"}
-            
-            if mode == "dense":
-                embedding = await self.bge_m3_service.generate_dense_embedding(query_text)
-                return {"dense": embedding}
-            elif mode == "sparse":
-                embedding = await self.bge_m3_service.generate_sparse_embedding(query_text)
-                return {"sparse": embedding}
-            elif mode == "multi_vector":
-                embedding = await self.bge_m3_service.generate_multivector_embedding(query_text)
-                return {"multi_vector": embedding}
-            else:
-                return {"error": f"Unknown mode: {mode}"}
-        except Exception as e:
-            logger.error(f"Error getting BGE-M3 embeddings: {e}")
-            return {"error": str(e)}
-    
-    async def bge_m3_hybrid_search(self, search_request, **kwargs) -> Dict[str, Any]:
-        """Perform BGE-M3 hybrid search"""
-        try:
-            if not self.bge_m3_service:
-                return {"error": "BGE-M3 service not available"}
-            
-            # Use the existing hybrid search method
-            results = await self.search_hybrid(
-                query=search_request.query,
-                use_bge_m3=True,
-                search_strategy="hybrid",
-                alpha=search_request.alpha,
-                top_k=search_request.top_k,
-                score_threshold=search_request.score_threshold,
-                metadata_filters=search_request.metadata_filters,
-                include_images=True,
-                session_id=search_request.session_id,
-                page=search_request.page,
-                page_size=search_request.page_size,
-            )
-            
-            return {
-                "results": results,
-                "total_results": len(results),
-                "query": search_request.query,
-                "search_mode": "hybrid"
-            }
-        except Exception as e:
-            logger.error(f"Error in BGE-M3 hybrid search: {e}")
-            return {"error": str(e)}
     
     async def create_collection(self, collection_name: str, config: Dict[str, Any] = None) -> bool:
         """Create a new collection"""
@@ -1542,3 +1499,121 @@ class SearchService:
         except Exception as e:
             logger.error(f"Error calculating metadata quality: {e}")
             return 0.0
+
+    async def bge_m3_dense_search(
+        self,
+        query: str,
+        top_k: int = 10,
+        score_threshold: Optional[float] = None,
+        metadata_filters: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> List[SearchResult]:
+        """
+        BGE-M3 Dense Search - Nur Dense Vektoren
+        
+        Args:
+            query: Suchanfrage
+            top_k: Anzahl der Ergebnisse
+            score_threshold: Mindest-Score-Schwelle
+            metadata_filters: Metadaten-Filter
+            session_id: Session-ID für Filterung
+            page: Seitennummer für Paginierung
+            page_size: Ergebnisse pro Seite
+            
+        Returns:
+            Liste formatierter Suchergebnisse
+        """
+        try:
+            logger.info(f"Performing BGE-M3 dense search for query: {query}")
+            
+            # Generiere Dense Embedding mit BGE-M3
+            if self.bge_m3_service:
+                dense_vector = await self.bge_m3_service.generate_dense_embedding(query)
+            else:
+                # Fallback
+                dense_vector = await self.get_dense_embedding(query, use_bge_m3=False)
+            
+            # Führe Text-Suche nur mit Dense Vektor durch
+            text_results = await self._search_text(
+                query_embedding=dense_vector,
+                sparse_vector={},  # Keine Sparse Vektoren
+                alpha=1.0,  # Nur Dense
+                limit=top_k,
+                score_threshold=score_threshold,
+                query_filter=create_payload_filter(session_id=session_id) if session_id else None,
+                metadata_filters=metadata_filters,
+            )
+            
+            # Wende Paginierung an
+            paginated_results = self._apply_pagination(text_results, page, page_size)
+            
+            # Formatiere Ergebnisse
+            search_results = await self._format_search_results(paginated_results)
+            
+            logger.info(f"BGE-M3 dense search found {len(search_results)} results")
+            return search_results
+            
+        except Exception as e:
+            logger.error(f"Error in BGE-M3 dense search: {e}")
+            return []
+
+    async def bge_m3_sparse_search(
+        self,
+        query: str,
+        top_k: int = 10,
+        score_threshold: Optional[float] = None,
+        metadata_filters: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> List[SearchResult]:
+        """
+        BGE-M3 Sparse Search - Nur Sparse Vektoren
+        
+        Args:
+            query: Suchanfrage
+            top_k: Anzahl der Ergebnisse
+            score_threshold: Mindest-Score-Schwelle
+            metadata_filters: Metadaten-Filter
+            session_id: Session-ID für Filterung
+            page: Seitennummer für Paginierung
+            page_size: Ergebnisse pro Seite
+            
+        Returns:
+            Liste formatierter Suchergebnisse
+        """
+        try:
+            logger.info(f"Performing BGE-M3 sparse search for query: {query}")
+            
+            # Generiere Sparse Embedding mit BGE-M3
+            if self.bge_m3_service:
+                embeddings = await self.get_bge_m3_embeddings(query)
+                sparse_vector = embeddings["sparse"]
+            else:
+                sparse_vector = {}  # Fallback
+            
+            # Führe Text-Suche nur mit Sparse Vektor durch
+            text_results = await self._search_text(
+                query_embedding=[0.0] * 768,  # Dummy Dense Vektor
+                sparse_vector=sparse_vector,
+                alpha=0.0,  # Nur Sparse
+                limit=top_k,
+                score_threshold=score_threshold,
+                query_filter=create_payload_filter(session_id=session_id) if session_id else None,
+                metadata_filters=metadata_filters,
+            )
+            
+            # Wende Paginierung an
+            paginated_results = self._apply_pagination(text_results, page, page_size)
+            
+            # Formatiere Ergebnisse
+            search_results = await self._format_search_results(paginated_results)
+            
+            logger.info(f"BGE-M3 sparse search found {len(search_results)} results")
+            return search_results
+            
+        except Exception as e:
+            logger.error(f"Error in BGE-M3 sparse search: {e}")
+            return []
