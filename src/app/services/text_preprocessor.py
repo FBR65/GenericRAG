@@ -644,6 +644,7 @@ class TextPreprocessor:
         batch_size: int = 32,
         cache_embeddings: bool = True,
         session_id: Optional[str] = None,
+        bge_m3_service: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
         """
         Verarbeitet eine Liste von Chunks mit BGE-M3 Embeddings (dense, sparse, multivector)
@@ -656,6 +657,7 @@ class TextPreprocessor:
             batch_size: Batch Größe für Verarbeitung
             cache_embeddings: Embeddings cachen
             session_id: Session ID für Caching
+            bge_m3_service: Optional BGE-M3 Service instance
 
         Returns:
             Liste von Chunks mit BGE-M3 Embeddings
@@ -666,8 +668,12 @@ class TextPreprocessor:
             # Importiere BGE-M3 Service
             from src.app.services.bge_m3_service import BGE_M3_Service
             
-            # Initialisiere BGE-M3 Service
-            bge_m3_service = BGE_M3_Service()
+            # Verwende übergebenen Service oder initialisiere neuen
+            if bge_m3_service:
+                self.logger.info("Verwende übergebenen BGE-M3 Service")
+            else:
+                bge_m3_service = BGE_M3_Service(self.settings)
+                self.logger.info("Initialisiere neuen BGE-M3 Service")
             
             if not bge_m3_service.is_available():
                 self.logger.warning("BGE-M3 Service nicht verfügbar, verwende Standard-Embeddings")
@@ -683,12 +689,7 @@ class TextPreprocessor:
                 try:
                     # Generiere BGE-M3 Embeddings für den Batch
                     batch_embeddings = await bge_m3_service.batch_generate_embeddings(
-                        texts=batch_texts,
-                        include_dense=include_dense,
-                        include_sparse=include_sparse,
-                        include_multivector=include_multivector,
-                        cache_embeddings=cache_embeddings,
-                        session_id=session_id
+                        texts=batch_texts
                     )
                     
                     # Füge Embeddings zu den Chunks hinzu
@@ -697,26 +698,32 @@ class TextPreprocessor:
                         
                         # Füge Embeddings basierend auf Verfügbarkeit hinzu
                         if j < len(batch_embeddings):
-                            embeddings = batch_embeddings[j]
+                            embedding_result = batch_embeddings[j]
+                            
+                            # Korrigiere den Zugriff auf die Embeddings-Struktur
+                            embeddings = embedding_result.get("embeddings", {})
                             
                             if include_dense and embeddings.get("dense"):
                                 chunk_with_embeddings["dense_vector"] = embeddings["dense"]
+                                self.logger.info(f"Added dense vector with {len(embeddings['dense'])} dimensions")
                             else:
                                 chunk_with_embeddings["dense_vector"] = [0.0] * 1024
                             
                             if include_sparse and embeddings.get("sparse"):
                                 chunk_with_embeddings["sparse_vector"] = embeddings["sparse"]
+                                self.logger.info(f"Added sparse vector with {len(embeddings['sparse'])} items")
                             else:
                                 chunk_with_embeddings["sparse_vector"] = {}
                             
-                            if include_multivector and embeddings.get("multivector"):
-                                chunk_with_embeddings["multivector"] = embeddings["multivector"]
+                            if include_multivector and embeddings.get("multi_vector"):
+                                chunk_with_embeddings["multivector"] = embeddings["multi_vector"]
+                                self.logger.info(f"Added multivector with {len(embeddings['multi_vector'])} vectors")
                             else:
                                 chunk_with_embeddings["multivector"] = []
                             
                             # Füge Fehlerinformationen hinzu
-                            if embeddings.get("errors"):
-                                chunk_with_embeddings["embedding_errors"] = embeddings["errors"]
+                            if embedding_result.get("errors"):
+                                chunk_with_embeddings["embedding_errors"] = embedding_result["errors"]
                         
                         processed_chunks.append(chunk_with_embeddings)
                         
@@ -747,6 +754,7 @@ class TextPreprocessor:
         include_multivector: bool = True,
         cache_embeddings: bool = True,
         session_id: Optional[str] = None,
+        bge_m3_service: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Generiert BGE-M3 Embeddings für einen einzelnen Text
@@ -758,6 +766,7 @@ class TextPreprocessor:
             include_multivector: Multi-Vector Embeddings generieren
             cache_embeddings: Embeddings cachen
             session_id: Session ID für Caching
+            bge_m3_service: Optional BGE-M3 Service instance
 
         Returns:
             Dictionary mit Embeddings und Metadaten
@@ -766,8 +775,12 @@ class TextPreprocessor:
             # Importiere BGE-M3 Service
             from src.app.services.bge_m3_service import BGE_M3_Service
             
-            # Initialisiere BGE-M3 Service
-            bge_m3_service = BGE_M3_Service()
+            # Verwende übergebenen Service oder initialisiere neuen
+            if bge_m3_service:
+                self.logger.info("Verwende übergebenen BGE-M3 Service für Text-Embedding")
+            else:
+                bge_m3_service = BGE_M3_Service(self.settings)
+                self.logger.info("Initialisiere neuen BGE-M3 Service für Text-Embedding")
             
             if not bge_m3_service.is_available():
                 self.logger.warning("BGE-M3 Service nicht verfügbar")
@@ -803,7 +816,8 @@ class TextPreprocessor:
         self,
         text: str,
         session_id: Optional[str] = None,
-        embedding_type: str = "dense"
+        embedding_type: str = "dense",
+        bge_m3_service: Optional[Any] = None
     ) -> Optional[List[float]]:
         """
         Ruft gecachte Embeddings ab, falls verfügbar
@@ -812,6 +826,7 @@ class TextPreprocessor:
             text: Text für den Cache-Lookup
             session_id: Session ID für Cache
             embedding_type: Typ des Embeddings (dense, sparse, multivector)
+            bge_m3_service: Optional BGE-M3 Service instance
 
         Returns:
             Gecachte Embeddings oder None, nicht gefunden
@@ -843,7 +858,8 @@ class TextPreprocessor:
         text: str,
         embeddings: Dict[str, Any],
         session_id: Optional[str] = None,
-        ttl: int = 3600  # 1 Stunde Standard-TTL
+        ttl: int = 3600,  # 1 Stunde Standard-TTL
+        bge_m3_service: Optional[Any] = None
     ) -> bool:
         """
         Speichert Embeddings im Cache
@@ -853,6 +869,7 @@ class TextPreprocessor:
             embeddings: Embeddings zum Speichern
             session_id: Session ID für Cache
             ttl: Time-to-live in Sekunden
+            bge_m3_service: Optional BGE-M3 Service instance
 
         Returns:
             True, wenn Speicherung erfolgreich

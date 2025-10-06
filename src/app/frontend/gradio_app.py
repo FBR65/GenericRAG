@@ -21,7 +21,7 @@ settings = get_settings()
 
 
 class GradioFrontend:
-    """Gradio frontend for the RAG system"""
+    """BGE-M3 enhanced Gradio frontend for the RAG system"""
 
     def __init__(self):
         self.api_base_url = f"http://{settings.app.host}:{settings.app.port}/api/v1"
@@ -34,41 +34,141 @@ class GradioFrontend:
         self.current_session_id = None
         self.uploaded_files = []
 
-        logger.info("Initialized Gradio frontend")
+        logger.info("Initialized BGE-M3 enhanced Gradio frontend")
 
-    async def upload_file(self, file: str) -> str:
+    async def upload_file(self, file) -> str:
         """
-        Upload a file to the RAG system
+        Upload a file to the BGE-M3 RAG system
 
         Args:
-            file: Base64 encoded file
+            file: Single file or list of files (Gradio File component with file_count="multiple")
 
         Returns:
-            Upload result message
+            Upload result message with BGE-M3 embedding information
         """
         try:
-            # Decode base64 file
-            file_data = base64.b64decode(file.split(",")[1])
+            logger.debug(f"Upload file received: {file}, type: {type(file)}")
+            
+            # Handle both single file and list of files
+            if isinstance(file, list):
+                logger.debug(f"File list length: {len(file)}")
+                if not file:
+                    return "❌ No files selected"
+                # Process first file for now (can be extended for multiple files)
+                file_to_upload = file[0]
+                logger.debug(f"Processing first file: {file_to_upload}")
+            else:
+                file_to_upload = file
+                logger.debug(f"Processing single file: {file_to_upload}")
 
-            # Create file-like object
-            file_obj = io.BytesIO(file_data)
+            # Check if file is valid
+            if not file_to_upload:
+                return "❌ No file provided"
+            logger.debug(f"File to upload type: {type(file_to_upload)}")
 
-            # Upload to API
+            # Convert file to base64 string
+            if hasattr(file_to_upload, 'name'):
+                # Gradio File object - read the file content
+                logger.debug(f"Processing Gradio File object: {file_to_upload.name}")
+                with open(file_to_upload.name, 'rb') as f:
+                    file_data = f.read()
+                # Create file-like object directly from binary data
+                file_obj = io.BytesIO(file_data)
+                filename = file_to_upload.name
+                logger.debug(f"File read successfully, size: {len(file_data)} bytes")
+            else:
+                # Base64 string
+                logger.debug(f"Processing base64 string: {file_to_upload[:50]}...")
+                if ',' not in file_to_upload:
+                    return "❌ Invalid file format (expected base64)"
+                file_data = base64.b64decode(file_to_upload.split(",")[1])
+                file_obj = io.BytesIO(file_data)
+                filename = "document.pdf"
+                logger.debug(f"Base64 decoded successfully, size: {len(file_data)} bytes")
+
+            # Upload to BGE-M3 API
+            logger.debug(f"Uploading to BGE-M3 API: {self.api_base_url}/ingest")
+            logger.debug(f"Session ID: {self.current_session_id}")
+            logger.debug(f"Filename: {filename}")
+            
             response = await self.client.post(
                 f"{self.api_base_url}/ingest",
-                files={"file": ("document.pdf", file_obj, "application/pdf")},
-                data={"session_id": self.current_session_id},
+                files={"file": (filename, file_obj, "application/pdf")},
+                data={
+                    "session_id": self.current_session_id,
+                    "embedding_types": "dense,sparse,multivector",
+                    "include_dense": True,
+                    "include_sparse": True,
+                    "include_multivector": True,
+                    "batch_size": 32,
+                    "cache_embeddings": True,
+                    "max_length": 8192,
+                    "device": "cpu",
+                },
             )
+            
+            logger.debug(f"API Response status: {response.status_code}")
+            logger.debug(f"API Response headers: {dict(response.headers)}")
 
             if response.status_code == 200:
                 result = response.json()
-                if result["results"][0]["status"] == "success":
-                    self.uploaded_files.append(result["results"][0]["filename"])
-                    return f"✅ Successfully uploaded {result['results'][0]['filename']} ({result['results'][0]['num_pages']} pages)"
+                logger.debug(f"API Response: {result}")
+                logger.debug(f"Results type: {type(result.get('results'))}")
+                logger.debug(f"Results value: {result.get('results')}")
+                logger.debug(f"Results length: {len(result.get('results', []))}")
+                
+                if result.get("results") and len(result["results"]) > 0:
+                    logger.debug(f"First result: {result['results'][0]}")
+                    if result["results"][0]["status"] == "success":
+                        first_result = result["results"][0]
+                        self.uploaded_files.append(first_result["filename"])
+                        
+                        # Add BGE-M3 specific information
+                        embeddings_info = first_result.get("embeddings_generated", {})
+                        bge_m3_metadata = first_result.get("bge_m3_metadata", {})
+                        bge_m3_error = first_result.get("bge_m3_error", None)
+                        
+                        message = f"✅ Successfully uploaded {first_result['filename']} ({first_result.get('num_pages', 'unknown')} pages)"
+                        
+                        if embeddings_info:
+                            message += f"\n🔍 BGE-M3 Embeddings: {embeddings_info}"
+                        
+                        if bge_m3_metadata:
+                            embedding_types = bge_m3_metadata.get("embedding_types_used", [])
+                            if embedding_types:
+                                message += f"\n🎯 Vector Types: {', '.join(embedding_types)}"
+                        
+                        if bge_m3_error:
+                            message += f"\n⚠️ BGE-M3 Warning: {bge_m3_error}"
+                        
+                        return message
+                    else:
+                        error_msg = result["results"][0].get("error", "Unknown error")
+                        error_type = result["results"][0].get("error_type", "general")
+                        
+                        # BGE-M3 specific error handling
+                        if error_type == "embedding_error":
+                            return f"❌ BGE-M3 Embedding Error: {error_msg}"
+                        elif error_type == "vector_generation_error":
+                            return f"❌ Vector Generation Error: {error_msg}"
+                        elif error_type == "cache_error":
+                            return f"❌ Cache Error: {error_msg}"
+                        else:
+                            return f"❌ Error uploading {result['results'][0]['filename']}: {error_msg}"
                 else:
-                    return f"❌ Error uploading {result['results'][0]['filename']}: {result['results'][0]['error']}"
+                    logger.error(f"Unexpected API response format - Results: {result.get('results')}")
+                    return "❌ Unexpected API response format"
             else:
-                return f"❌ Upload failed: {response.status_code} - {response.text}"
+                error_text = response.text
+                # BGE-M3 specific error messages
+                if "embedding" in error_text.lower():
+                    return f"❌ BGE-M3 Embedding Error: {error_text}"
+                elif "vector" in error_text.lower():
+                    return f"❌ Vector Processing Error: {error_text}"
+                elif "cache" in error_text.lower():
+                    return f"❌ Cache Error: {error_text}"
+                else:
+                    return f"❌ Upload failed: {response.status_code} - {error_text}"
 
         except Exception as e:
             logger.error(f"Error uploading file: {e}")
@@ -77,27 +177,29 @@ class GradioFrontend:
     async def query_rag(
         self,
         query: str,
-        use_streaming: bool = True,
         search_strategy: str = "hybrid",
         alpha: float = 0.5,
+        beta: float = 0.3,
+        gamma: float = 0.2,
         include_images: bool = True,
         page_number: Optional[int] = None,
         element_type: Optional[str] = None,
     ) -> str:
         """
-        Query the RAG system with hybrid search support
+        Query the BGE-M3 enhanced RAG system
 
         Args:
             query: User query
-            use_streaming: Whether to use streaming
-            search_strategy: Search strategy ("text_only", "image_only", "hybrid")
+            search_strategy: Search strategy ("hybrid", "dense", "sparse", "multivector")
             alpha: Weight for dense vs sparse search (0.0-1.0)
+            beta: Weight for multivector reranking (0.0-1.0)
+            gamma: Weight for multivector component (0.0-1.0)
             include_images: Whether to include image results
             page_number: Filter by page number
             element_type: Filter by element type
 
         Returns:
-            Query response
+            BGE-M3 enhanced query response
         """
         if not query.strip():
             return "❌ Please enter a query"
@@ -110,149 +212,148 @@ class GradioFrontend:
             if element_type is not None:
                 metadata_filters["type"] = element_type
 
-            if use_streaming:
-                # Use streaming endpoint
-                response = await self.client.post(
-                    f"{self.api_base_url}/query-stream",
-                    json={
-                        "query": query,
-                        "session_id": self.current_session_id,
-                        "search_strategy": search_strategy,
-                        "alpha": alpha,
-                        "include_images": include_images,
-                        "metadata_filters": metadata_filters
-                        if metadata_filters
-                        else None,
-                    },
-                    headers={"Accept": "text/event-stream"},
-                )
+            # Use BGE-M3 regular endpoint
+            response = await self.client.post(
+                f"{self.api_base_url}/query",
+                json={
+                    "query": query,
+                    "session_id": self.current_session_id,
+                    "search_mode": search_strategy,
+                    "alpha": alpha,
+                    "beta": beta,
+                    "gamma": gamma,
+                    "include_images": include_images,
+                    "metadata_filters": metadata_filters
+                    if metadata_filters
+                    else None,
+                },
+            )
 
-                if response.status_code == 200:
-                    # Process streaming response
-                    full_response = ""
-                    chunk_count = 0
-                    total_chunks = 0
+            if response.status_code == 200:
+                result = response.json()
+                response_text = result.get("response", "No response generated")
+                total_results = result.get("total_results", 0)
+                search_mode = result.get("search_mode", "hybrid")
+                response_type = result.get("response_type", "vlm")
 
-                    for line in response.iter_lines():
-                        if line.startswith("data: "):
-                            try:
-                                data = json.loads(line[6:])
-                                if data.get("status") == "completed":
-                                    # Add completion info
-                                    total_results = data.get("total_results", 0)
-                                    search_strategy = data.get(
-                                        "search_strategy", "hybrid"
-                                    )
-                                    full_response += f"\n\n✅ Query completed. Found {total_results} results."
-                                    full_response += (
-                                        f"\n🔍 Search Strategy: {search_strategy}"
-                                    )
-                                    full_response += f"\n🤖 Response Type: VLM"
-                                    break
-                                elif data.get("type") == "text":
-                                    full_response += data["content"]
-                                    chunk_count = data.get("chunk_index", 0)
-                                    total_chunks = data.get("total_chunks", 1)
-                                elif data.get("error"):
-                                    full_response = f"❌ Error: {data['error']}"
-                                    break
-                            except json.JSONDecodeError:
-                                continue
+                # Add BGE-M3 information if available
+                embedding_info = result.get("embedding_info", {})
+                bge_m3_metadata = result.get("bge_m3_metadata", {})
+                
+                if embedding_info or bge_m3_metadata:
+                    response_text = f"🤖 **BGE-M3 Enhanced Response**\n\n{response_text}"
+                    
+                    # Add processing information
+                    if embedding_info:
+                        vector_types = embedding_info.get("vector_types", [])
+                        cache_hit = embedding_info.get("cache_hit", False)
+                        processing_time = embedding_info.get("processing_time", 0)
+                        cache_stats = embedding_info.get("cache_stats", {})
+                        
+                        response_text += f"\n\n⏱️ **Processing Time:** {processing_time:.3f}s"
+                        response_text += f"\n🔍 **Vector Types:** {', '.join(vector_types)}"
+                        response_text += f"\n🎯 **Cache Hit:** {'Yes' if cache_hit else 'No'}"
+                        
+                        if cache_stats:
+                            cache_size = cache_stats.get("cache_size", 0)
+                            cache_hits = cache_stats.get("cache_hits", 0)
+                            cache_misses = cache_stats.get("cache_misses", 0)
+                            response_text += f"\n📊 **Cache Stats:** {cache_size} cached, {cache_hits} hits, {cache_misses} misses"
+                    
+                    # Add BGE-M3 specific metadata
+                    if bge_m3_metadata:
+                        multivector_strategy = bge_m3_metadata.get("multivector_strategy", "average")
+                        dense_similarity = bge_m3_metadata.get("dense_similarity", 0)
+                        sparse_similarity = bge_m3_metadata.get("sparse_similarity", 0)
+                        multivector_similarity = bge_m3_metadata.get("multivector_similarity", 0)
+                        
+                        response_text += f"\n\n🎯 **BGE-M3 Metadata:**"
+                        response_text += f"\n   • Multivector Strategy: {multivector_strategy}"
+                        response_text += f"\n   • Dense Similarity: {dense_similarity:.3f}"
+                        response_text += f"\n   • Sparse Similarity: {sparse_similarity:.3f}"
+                        response_text += f"\n   • Multivector Similarity: {multivector_similarity:.3f}"
 
-                    # Add streaming progress if available
-                    if total_chunks > 1:
-                        progress = f" ({chunk_count + 1}/{total_chunks})"
-                        full_response += progress
+                # Add results summary
+                summary = f"\n\n📊 **Search Summary**"
+                summary += f"\n   • Found {total_results} relevant documents"
+                summary += f"\n   • Search Mode: {search_mode}"
+                summary += f"\n   • Response Type: {response_type}"
 
-                    return full_response or "❌ No response received"
-                else:
-                    return f"❌ Query failed: {response.status_code} - {response.text}"
+                # Add top 3 results with enhanced BGE-M3 information
+                if result.get("results", {}).get("items"):
+                    summary += "\n\n🔍 **Top Results:**"
+
+                    text_count = 0
+                    image_count = 0
+
+                    for i, result_item in enumerate(result["results"]["items"][:3], 1):
+                        doc_name = result_item.get("document", "Unknown")
+                        page = result_item.get("page", 0)
+                        score = result_item.get("score", 0)
+                        search_type = result_item.get("search_type", "text")
+                        element_type = result_item.get("element_type", "text")
+                        vector_types = result_item.get("vector_types", [])
+                        bge_m3_scores = result_item.get("bge_m3_scores", {})
+                        
+                        if search_type == "text":
+                            text_count += 1
+                            emoji = "📄"
+                            if element_type == "table":
+                                emoji = "📊"
+                            elif element_type == "chart":
+                                emoji = "📈"
+                            
+                            summary += f"\n{i}. {emoji} **{doc_name}** (Page {page}, Score: {score:.3f})"
+                            
+                            # Add vector type information
+                            if vector_types:
+                                summary += f"\n   🔍 Vector Types: {', '.join(vector_types)}"
+                            
+                            # Add BGE-M3 specific scores
+                            if bge_m3_scores:
+                                dense_score = bge_m3_scores.get("dense_score", 0)
+                                sparse_score = bge_m3_scores.get("sparse_score", 0)
+                                multivector_score = bge_m3_scores.get("multivector_score", 0)
+                                summary += f"\n   🎯 BGE-M3 Scores: Dense={dense_score:.3f}, Sparse={sparse_score:.3f}, Multi={multivector_score:.3f}"
+                        else:
+                            image_count += 1
+                            summary += f"\n{i}. 🖼️ **{doc_name}** (Page {page}, Score: {score:.3f})"
+
+                    # Add result type breakdown
+                    if text_count > 0 or image_count > 0:
+                        summary += f"\n\n📊 **Result Breakdown:** {text_count} text, {image_count} image"
+
+                return response_text + summary
             else:
-                # Use regular endpoint
-                response = await self.client.post(
-                    f"{self.api_base_url}/query",
-                    json={
-                        "query": query,
-                        "session_id": self.current_session_id,
-                        "search_strategy": search_strategy,
-                        "alpha": alpha,
-                        "include_images": include_images,
-                        "metadata_filters": metadata_filters
-                        if metadata_filters
-                        else None,
-                    },
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    response_text = result.get("response", "No response generated")
-                    total_results = result.get("total_results", 0)
-                    search_strategy = result.get("search_strategy", "hybrid")
-                    response_type = result.get("response_type", "vlm")
-
-                    # Add VLM information if available
-                    vlm_info = result.get("vlm_info", {})
-                    if vlm_info:
-                        vlm_model = vlm_info.get("model_used", "Unknown")
-                        processing_time = vlm_info.get("processing_time", 0)
-                        images_used = vlm_info.get("images_used", False)
-
-                        response_text = f"🤖 **VLM Response** (Model: {vlm_model})\n\n{response_text}"
-                        response_text += (
-                            f"\n\n⏱️ **Processing Time:** {processing_time:.2f}s"
-                        )
-                        response_text += (
-                            f"\n🖼️ **Images Used:** {'Yes' if images_used else 'No'}"
-                        )
-
-                    # Add results summary
-                    summary = f"\n\n📊 Found {total_results} relevant documents"
-                    summary += f"\n🔍 Search Strategy: {search_strategy}"
-                    summary += f"\n🤖 Response Type: {response_type}"
-
-                    # Add top 3 results with images if available
-                    if result.get("results"):
-                        summary += "\n\n🔍 Top Results:"
-
-                        text_count = 0
-                        image_count = 0
-
-                        for i, result_item in enumerate(result["results"][:3], 1):
-                            doc_name = result_item.get("document", "Unknown")
-                            page = result_item.get("page", 0)
-                            score = result_item.get("score", 0)
-                            search_type = result_item.get("metadata", {}).get(
-                                "search_type", "text"
-                            )
-                            element_type = result_item.get("element_type", "text")
-
-                            if search_type == "text":
-                                text_count += 1
-                                emoji = "📄"
-                                if element_type == "table":
-                                    emoji = "📊"
-                                elif element_type == "chart":
-                                    emoji = "📈"
-                                summary += f"\n{i}. {emoji} {doc_name} (Page {page}, Score: {score:.3f})"
-                            else:
-                                image_count += 1
-                                summary += f"\n{i}. 🖼️ {doc_name} (Page {page}, Score: {score:.3f})"
-
-                        # Add result type breakdown
-                        if text_count > 0 or image_count > 0:
-                            summary += f"\n\n📊 Result Breakdown: {text_count} text, {image_count} image"
-
-                    return response_text + summary
+                error_text = response.text
+                # BGE-M3 specific error messages
+                if "embedding" in error_text.lower():
+                    return f"❌ BGE-M3 Embedding Error: {error_text}"
+                elif "vector" in error_text.lower():
+                    return f"❌ Vector Processing Error: {error_text}"
+                elif "cache" in error_text.lower():
+                    return f"❌ Cache Error: {error_text}"
+                elif "search" in error_text.lower():
+                    return f"❌ Search Error: {error_text}"
                 else:
-                    return f"❌ Query failed: {response.status_code} - {response.text}"
+                    return f"❌ Query failed: {response.status_code} - {error_text}"
 
         except Exception as e:
             logger.error(f"Error querying RAG: {e}")
-            return f"❌ Error querying RAG: {str(e)}"
+            # BGE-M3 specific error handling
+            error_str = str(e).lower()
+            if "embedding" in error_str:
+                return f"❌ BGE-M3 Embedding Error: {str(e)}"
+            elif "vector" in error_str:
+                return f"❌ Vector Processing Error: {str(e)}"
+            elif "timeout" in error_str:
+                return f"❌ Processing Timeout: {str(e)}"
+            else:
+                return f"❌ Error querying RAG: {str(e)}"
 
     async def create_new_session(self) -> str:
         """
-        Create a new session
+        Create a new BGE-M3 enhanced session
 
         Returns:
             Session creation message
@@ -272,27 +373,85 @@ class GradioFrontend:
 
     async def get_session_info(self) -> str:
         """
-        Get current session information
+        Get current BGE-M3 enhanced session information
 
         Returns:
-            Session information
+            Session information with BGE-M3 details
         """
         if not self.current_session_id:
             return "❌ No active session"
 
         try:
-            # Get session documents
+            # Get session information
             response = await self.client.get(
-                f"{self.api_base_url}/sessions/{self.current_session_id}/documents"
+                f"{self.api_base_url}/sessions/{self.current_session_id}"
             )
 
             if response.status_code == 200:
-                documents = response.json()
+                session_info = response.json()
+                documents = session_info.get("documents", [])
+                bge_m3_session_info = session_info.get("bge_m3_session_info", {})
+                
+                # Build session info display
+                session_display = f"📁 **Session:** {self.current_session_id[:8]}...\n\n"
+                
                 if documents:
-                    doc_list = "\n".join([f"• {doc}" for doc in documents])
-                    return f"📁 Session: {self.current_session_id[:8]}...\n\nDocuments:\n{doc_list}"
+                    session_display += "📄 **Documents:**\n"
+                    for doc in documents:
+                        session_display += f"• {doc}\n"
                 else:
-                    return f"📁 Session: {self.current_session_id[:8]}...\n\nNo documents uploaded yet"
+                    session_display += "📄 **Documents:**\nNo documents uploaded yet\n"
+                
+                # Add BGE-M3 specific session information
+                if bge_m3_session_info:
+                    session_display += "\n🎯 **BGE-M3 Session Info:**\n"
+                    
+                    # Embedding statistics
+                    embedding_stats = bge_m3_session_info.get("embedding_statistics", {})
+                    if embedding_stats:
+                        session_display += "   **Embedding Statistics:**\n"
+                        total_embeddings = embedding_stats.get("total_embeddings", 0)
+                        dense_embeddings = embedding_stats.get("dense_embeddings", 0)
+                        sparse_embeddings = embedding_stats.get("sparse_embeddings", 0)
+                        multivector_embeddings = embedding_stats.get("multivector_embeddings", 0)
+                        
+                        session_display += f"   • Total Embeddings: {total_embeddings}\n"
+                        session_display += f"   • Dense Embeddings: {dense_embeddings}\n"
+                        session_display += f"   • Sparse Embeddings: {sparse_embeddings}\n"
+                        session_display += f"   • Multivector Embeddings: {multivector_embeddings}\n"
+                    
+                    # Cache information
+                    cache_info = bge_m3_session_info.get("cache_info", {})
+                    if cache_info:
+                        session_display += "   **Cache Information:**\n"
+                        cache_size = cache_info.get("cache_size", 0)
+                        cache_hits = cache_info.get("cache_hits", 0)
+                        cache_hit_rate = cache_info.get("cache_hit_rate", 0)
+                        
+                        session_display += f"   • Cache Size: {cache_size} embeddings\n"
+                        session_display += f"   • Cache Hits: {cache_hits}\n"
+                        session_display += f"   • Cache Hit Rate: {cache_hit_rate:.2%}\n"
+                    
+                    # Performance metrics
+                    performance_metrics = bge_m3_session_info.get("performance_metrics", {})
+                    if performance_metrics:
+                        session_display += "   **Performance Metrics:**\n"
+                        avg_embedding_time = performance_metrics.get("avg_embedding_time", 0)
+                        avg_query_time = performance_metrics.get("avg_query_time", 0)
+                        total_processing_time = performance_metrics.get("total_processing_time", 0)
+                        
+                        session_display += f"   • Avg Embedding Time: {avg_embedding_time:.3f}s\n"
+                        session_display += f"   • Avg Query Time: {avg_query_time:.3f}s\n"
+                        session_display += f"   • Total Processing Time: {total_processing_time:.2f}s\n"
+                    
+                    # Vector type distribution
+                    vector_distribution = bge_m3_session_info.get("vector_distribution", {})
+                    if vector_distribution:
+                        session_display += "   **Vector Type Distribution:**\n"
+                        for vector_type, count in vector_distribution.items():
+                            session_display += f"   • {vector_type}: {count}\n"
+                
+                return session_display
             else:
                 return f"❌ Error getting session info: {response.status_code}"
 
@@ -302,7 +461,7 @@ class GradioFrontend:
 
     async def clear_session(self) -> str:
         """
-        Clear current session
+        Clear current BGE-M3 enhanced session
 
         Returns:
             Session clear message
@@ -320,7 +479,8 @@ class GradioFrontend:
                 result = response.json()
                 self.current_session_id = None
                 self.uploaded_files = []
-                return f"🗑️ Session cleared. Deleted {result.get('deleted_images', 0)} images."
+                deleted_count = result.get('deleted_documents', 0)
+                return f"🗑️ Session cleared. Deleted {deleted_count} documents."
             else:
                 return f"❌ Error clearing session: {response.status_code}"
 
@@ -330,19 +490,18 @@ class GradioFrontend:
 
     def create_interface(self) -> gr.Interface:
         """
-        Create the Gradio interface
+        Create the BGE-M3 enhanced Gradio interface
 
         Returns:
-            Gradio interface
+            Gradio interface with BGE-M3 specific features
         """
         with gr.Blocks(
             theme=self.theme,
             title="GenericRAG - RAG System",
-            description="Upload PDFs and query them using DSPy/GEPA optimization",
         ) as demo:
             # Header
-            gr.Markdown("# 📚 GenericRAG - RAG System")
-            gr.Markdown("Upload PDF documents and query them using advanced AI models")
+            gr.Markdown("# 📚 GenericRAG - BGE-M3 RAG System")
+            gr.Markdown("Upload PDF documents and query them using advanced BGE-M3 AI models")
 
             # Session management
             with gr.Row():
@@ -357,7 +516,7 @@ class GradioFrontend:
 
             # Upload tab
             with gr.Tab("📤 Upload Documents"):
-                gr.Markdown("Upload PDF documents to add them to your knowledge base")
+                gr.Markdown("Upload PDF documents to add them to your BGE-M3 enhanced knowledge base")
 
                 with gr.Row():
                     file_upload = gr.File(
@@ -385,7 +544,7 @@ class GradioFrontend:
 
             # Query tab
             with gr.Tab("🔍 Query Documents"):
-                gr.Markdown("Ask questions about your uploaded documents")
+                gr.Markdown("Ask questions about your BGE-M3 enhanced documents")
 
                 with gr.Row():
                     query_input = gr.Textbox(
@@ -396,17 +555,13 @@ class GradioFrontend:
                     query_btn = gr.Button("🔍 Ask Question", variant="primary")
 
                 with gr.Row():
-                    streaming_toggle = gr.Checkbox(
-                        label="Use Streaming Response",
-                        value=True,
-                    )
                     clear_query_btn = gr.Button("🗑️ Clear Query")
 
                 # Search settings
                 with gr.Accordion("⚙️ Search Settings", open=False):
                     with gr.Row():
                         search_strategy = gr.Radio(
-                            choices=["hybrid", "text_only", "image_only"],
+                            choices=["hybrid", "dense", "sparse", "multivector"],
                             value="hybrid",
                             label="Search Strategy",
                         )
@@ -437,6 +592,67 @@ class GradioFrontend:
                         label="Element Type Filter",
                     )
 
+                # BGE-M3 specific settings
+                with gr.Accordion("🎯 BGE-M3 Settings", open=False):
+                    gr.Markdown("### Advanced BGE-M3 Configuration")
+                    
+                    with gr.Row():
+                        beta_slider = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            value=0.3,
+                            step=0.1,
+                            label="Multivector Weight (β)",
+                        )
+                        gamma_slider = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            value=0.2,
+                            step=0.1,
+                            label="Multivector Reranking (γ)",
+                        )
+                    
+                    with gr.Row():
+                        multivector_strategy = gr.Dropdown(
+                            choices=["average", "max", "sum", "weighted"],
+                            value="average",
+                            label="Multivector Strategy",
+                        )
+                        alpha_slider = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            value=0.5,
+                            step=0.1,
+                            label="Dense vs Sparse Weight (α)",
+                        )
+                    
+                    with gr.Row():
+                        max_length = gr.Slider(
+                            minimum=512,
+                            maximum=8192,
+                            value=8192,
+                            step=256,
+                            label="Max Token Length",
+                        )
+                        batch_size = gr.Slider(
+                            minimum=8,
+                            maximum=64,
+                            value=32,
+                            step=8,
+                            label="Batch Size",
+                        )
+                    
+                    with gr.Row():
+                        device = gr.Dropdown(
+                            choices=["cpu", "cuda", "auto"],
+                            value="cpu",
+                            label="Processing Device",
+                        )
+                        cache_embeddings = gr.Checkbox(
+                            label="Cache Embeddings",
+                            value=True,
+                        )
+
                 query_output = gr.Textbox(
                     label="Response",
                     placeholder="Response will appear here...",
@@ -456,7 +672,7 @@ class GradioFrontend:
                 gr.Markdown("### Model Information")
                 model_info = gr.Textbox(
                     label="Models",
-                    value=f"LLM: {settings.llm.student_model}",
+                    value=f"LLM: {settings.llm.student_model} | Embedding: BGE-M3",
                     interactive=False,
                     lines=1,
                 )
@@ -481,9 +697,10 @@ class GradioFrontend:
                 fn=self.query_rag,
                 inputs=[
                     query_input,
-                    streaming_toggle,
                     search_strategy,
                     alpha_slider,
+                    beta_slider,
+                    gamma_slider,
                     include_images,
                     page_filter,
                     element_type,
@@ -500,30 +717,35 @@ class GradioFrontend:
                 "• Start with a new session for each project\n"
                 "• Upload multiple PDFs to build a comprehensive knowledge base\n"
                 "• Be specific in your questions for better results\n"
-                "• Use streaming for real-time response generation\n"
                 "• Try different search strategies for optimal results\n"
                 "• Use metadata filters to narrow down your search\n"
-                "• Adjust the Dense vs Sparse weight for different query types\n"
-                "• VLM responses include image analysis when relevant"
+                "• Adjust the Dense vs Sparse weight (α) for different query types\n"
+                "• Use BGE-M3 settings to fine-tune vector search (β, γ)\n"
+                "• Choose appropriate multivector strategy for your use case\n"
+                "• BGE-M3 generates dense, sparse, and multivector embeddings simultaneously\n"
+                "• Cache hits significantly improve response time for repeated queries\n"
+                "• Monitor session info for embedding statistics and performance metrics\n"
+                "• Use different device settings (CPU/GPU) based on your hardware\n"
+                "• Adjust batch size for optimal memory usage and performance"
             )
 
         return demo
 
 
 def create_gradio_app() -> gr.Interface:
-    """Create and return the Gradio application"""
+    """Create and return the BGE-M3 enhanced Gradio application"""
     frontend = GradioFrontend()
     return frontend.create_interface()
 
 
 if __name__ == "__main__":
-    # Create and launch the app
+    # Create and launch the BGE-M3 enhanced app
     demo = create_gradio_app()
 
     # Launch with custom settings
     demo.launch(
         server_name=settings.app.host,
-        server_port=settings.app.gradio_port,
+        server_port=settings.gradio.port,
         share=False,
         debug=True,
         show_error=True,

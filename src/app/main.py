@@ -72,10 +72,11 @@ async def lifespan_manager(app: FastAPI):
     # Initialize Instructor client
     import instructor
 
-    app.state.instructor_client = instructor.AsyncInstructor(
-        client_type="httpx",
+    app.state.instructor_client = instructor.from_provider(
+        model=f"openai/{settings.llm.student_model}",
         base_url=settings.llm.gemma_base_url,
         api_key=settings.llm.gemma_api_key,
+        async_client=True,
     )
 
     # Initialize DSPy integration service

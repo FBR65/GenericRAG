@@ -22,7 +22,7 @@ class DSPyIntegrationService:
     def __init__(self, settings: Settings, instructor_client: AsyncInstructor):
         self.settings = settings
         self.instructor_client = instructor_client
-        self.cache_dir = settings.storage.dspy_cache_path
+        self.cache_dir = Path(settings.storage.dspy_cache_path)
         
         # Initialize DSPy settings
         self._setup_dspy()
@@ -35,10 +35,12 @@ class DSPyIntegrationService:
     def _setup_dspy(self):
         """Setup DSPy configuration"""
         # Configure DSPy settings
+        cache_path = str(self.cache_dir / "cache.db")
+        
         dspy.settings.configure(
             lm=self._create_lm_client(),
             experimental={
-                "cache": str(self.cache_dir / "cache.db"),
+                "cache": cache_path,
                 "compile_timeout": 300,
             },
         )
@@ -61,26 +63,28 @@ class DSPyIntegrationService:
     
     def _initialize_components(self):
         """Initialize DSPy components"""
-        # Define signatures
-        self.analysis_signature = dspy.Signature(
-            "You are a document analysis expert. Analyze the provided images and extract relevant information that addresses the user's question.",
-            question="str",
-            images="str",
-            analysis="str",
-        )
+        # Define signatures using DSPy class-based approach
+        class AnalysisSignature(dspy.Signature):
+            """You are a document analysis expert. Analyze the provided images and extract relevant information that addresses the user's question."""
+            question: str = dspy.InputField(desc="The user's question")
+            images: str = dspy.InputField(desc="Base64 encoded images")
+            analysis: str = dspy.OutputField(desc="Analysis of the images")
         
-        self.summary_signature = dspy.Signature(
-            "You are a summarization expert. Summarize the provided analysis to create a concise yet comprehensive summary.",
-            analysis="str",
-            summary="str",
-        )
+        class SummarySignature(dspy.Signature):
+            """You are a summarization expert. Summarize the provided analysis to create a concise yet comprehensive summary."""
+            analysis: str = dspy.InputField(desc="Analysis to summarize")
+            summary: str = dspy.OutputField(desc="Concise summary")
         
-        self.response_signature = dspy.Signature(
-            "You are a helpful assistant. Generate a comprehensive answer to the user's question based on the provided summary.",
-            question="str",
-            summary="str",
-            answer="str",
-        )
+        class ResponseSignature(dspy.Signature):
+            """You are a helpful assistant. Generate a comprehensive answer to the user's question based on the provided summary."""
+            question: str = dspy.InputField(desc="The user's question")
+            summary: str = dspy.InputField(desc="Summary to base response on")
+            answer: str = dspy.OutputField(desc="Comprehensive answer")
+        
+        # Create signatures
+        self.analysis_signature = AnalysisSignature
+        self.summary_signature = SummarySignature
+        self.response_signature = ResponseSignature
         
         # Create modules
         self.analysis_module = dspy.Predict(self.analysis_signature)

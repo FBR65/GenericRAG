@@ -11,7 +11,9 @@ from functools import wraps
 import aiohttp
 import redis
 from loguru import logger
+import numpy as np
 
+from FlagEmbedding import BGEM3FlagModel
 from src.app.settings import Settings, BGE_M3_Settings
 
 
@@ -233,8 +235,9 @@ class BGE_M3_Service:
         self.cache_manager = CacheManager(self.bge_m3_settings)
         self.error_handler = ErrorHandler(self.bge_m3_settings)
         
-        # Initialize model client (simulated for now)
-        self.model_client = "BGE_M3_MODEL_CLIENT"  # Always set to simulate model availability
+        # Initialize real BGE-M3 model
+        self.model_client = None
+        self._initialize_model()
         
         logger.info("BGE-M3 Service initialized successfully")
     
@@ -255,44 +258,154 @@ class BGE_M3_Service:
         
         return text
     
+    def _initialize_model(self):
+        """Initialize the BGE-M3 model"""
+        try:
+            # Use FlagEmbedding for BGE-M3
+            logger.info(f"Loading BGE-M3 model: {self.bge_m3_settings.model_name}")
+            
+            # Load the model with FlagEmbedding
+            self.model_client = BGEM3FlagModel(
+                self.bge_m3_settings.model_name,
+                device=self.bge_m3_settings.model_device,
+                use_fp16=True  # Use half precision for better performance
+            )
+            
+            logger.info("BGE-M3 model loaded successfully")
+            
+        except ImportError as e:
+            logger.error(f"Failed to import FlagEmbedding: {e}")
+            logger.error("Please install FlagEmbedding: pip install FlagEmbedding")
+            self.model_client = None
+        except Exception as e:
+            logger.error(f"Failed to load BGE-M3 model: {e}")
+            self.model_client = None
+    
     async def _make_embedding_request(self, text: str, mode: str) -> Dict[str, Any]:
-        """Make request to embedding model (simulated)"""
-        # Simulate API call delay
-        await asyncio.sleep(0.1)
+        """Make request to embedding model"""
+        if not self.model_client:
+            raise Exception("BGE-M3 model is not available")
         
-        # Simulate different embedding types
-        if mode == "dense":
-            embedding = [0.1] * self.bge_m3_settings.dense_dimension
-            if self.bge_m3_settings.dense_normalize:
-                # Simple normalization
-                magnitude = sum(x**2 for x in embedding) ** 0.5
-                embedding = [x / magnitude for x in embedding]
-            
-            return {"dense": embedding}
+        # Simulate API call delay for async consistency
+        await asyncio.sleep(0.01)
         
-        elif mode == "sparse":
-            # Simulate sparse embedding
-            embedding = {}
-            for i in range(0, min(100, self.bge_m3_settings.sparse_dimension), 10):
-                embedding[str(i)] = 0.5 + (i % 5) * 0.1
+        try:
+            if mode == "dense":
+                # Generate dense embedding using BGE-M3
+                # Use the correct method for BGEM3FlagModel
+                output = self.model_client.encode(
+                    [text],
+                    return_dense=True,
+                    return_sparse=False,
+                    return_colbert_vecs=False
+                )
+                
+                embedding = output['dense_vecs'][0]
+                
+                # Ensure correct dimension
+                if len(embedding) != self.bge_m3_settings.dense_dimension:
+                    logger.warning(f"Dense embedding dimension mismatch: got {len(embedding)}, expected {self.bge_m3_settings.dense_dimension}")
+                    # Pad or truncate to match expected dimension
+                    if len(embedding) < self.bge_m3_settings.dense_dimension:
+                        embedding = np.pad(embedding, (0, self.bge_m3_settings.dense_dimension - len(embedding)))
+                    else:
+                        embedding = embedding[:self.bge_m3_settings.dense_dimension]
+                
+                return {"dense": embedding.tolist()}
             
-            if self.bge_m3_settings.sparse_normalize:
-                max_val = max(embedding.values()) if embedding else 1
-                embedding = {k: v / max_val for k, v in embedding.items()}
+            elif mode == "sparse":
+                # Generate sparse embedding using BGE-M3
+                # Use the correct method for BGEM3FlagModel
+                output = self.model_client.encode(
+                    [text],
+                    return_dense=False,
+                    return_sparse=True,
+                    return_colbert_vecs=False
+                )
+                
+                sparse_embedding = output['lexical_weights'][0]
+                
+                # Convert to dictionary format
+                if isinstance(sparse_embedding, dict):
+                    # Already in dictionary format
+                    pass
+                else:
+                    # Fallback: create sparse representation from dense
+                    sparse_embedding = {}
+                    for i, value in enumerate(sparse_embedding):
+                        if abs(value) > 0.01:
+                            sparse_embedding[str(i)] = float(value)
+                
+                # Normalize if requested
+                if self.bge_m3_settings.sparse_normalize and sparse_embedding:
+                    max_val = max(abs(v) for v in sparse_embedding.values())
+                    if max_val > 0:
+                        sparse_embedding = {k: v / max_val for k, v in sparse_embedding.items()}
+                
+                return {"sparse": sparse_embedding}
             
-            return {"sparse": embedding}
-        
-        elif mode == "multi_vector":
-            # Simulate multi-vector embedding
-            embedding = []
-            for _ in range(self.bge_m3_settings.multi_vector_count):
-                vector = [0.1] * self.bge_m3_settings.multi_vector_dimension
-                embedding.append(vector)
+            elif mode == "multi_vector":
+                # Generate multi-vector embedding using BGE-M3
+                # Use the correct method for BGEM3FlagModel
+                output = self.model_client.encode(
+                    [text],
+                    return_dense=False,
+                    return_sparse=False,
+                    return_colbert_vecs=True
+                )
+                
+                multi_embedding = output['colbert_vecs'][0]
+                
+                # Ensure we have the right format
+                if not isinstance(multi_embedding, list):
+                    # If not a list, try to convert or create from dense
+                    dense_output = self.model_client.encode(
+                        [text],
+                        return_dense=True,
+                        return_sparse=False,
+                        return_colbert_vecs=False
+                    )
+                    
+                    dense_embedding = dense_output['dense_vecs'][0]
+                    
+                    # Split dense embedding into multiple vectors
+                    vector_dimension = self.bge_m3_settings.multi_vector_dimension
+                    vector_count = self.bge_m3_settings.multi_vector_count
+                    
+                    multi_embedding = []
+                    for i in range(vector_count):
+                        start_idx = i * vector_dimension
+                        end_idx = start_idx + vector_dimension
+                        
+                        # Extract slice or pad with zeros
+                        if end_idx <= len(dense_embedding):
+                            vector = dense_embedding[start_idx:end_idx]
+                        else:
+                            # Pad with zeros
+                            vector = list(dense_embedding[start_idx:]) + [0.0] * (end_idx - len(dense_embedding))
+                        
+                        multi_embedding.append(vector)
+                
+                # Ensure we have the right number of vectors
+                if len(multi_embedding) < self.bge_m3_settings.multi_vector_count:
+                    # Pad with zero vectors
+                    for _ in range(self.bge_m3_settings.multi_vector_count - len(multi_embedding)):
+                        zero_vector = [0.0] * self.bge_m3_settings.multi_vector_dimension
+                        multi_embedding.append(zero_vector)
+                elif len(multi_embedding) > self.bge_m3_settings.multi_vector_count:
+                    # Truncate
+                    multi_embedding = multi_embedding[:self.bge_m3_settings.multi_vector_count]
+                
+                return {"multi_vector": multi_embedding}
             
-            return {"multi_vector": embedding}
-        
-        else:
-            raise ValueError(f"Unknown embedding mode: {mode}")
+            else:
+                raise ValueError(f"Unknown embedding mode: {mode}")
+                
+        except Exception as e:
+            logger.error(f"Error generating {mode} embedding: {e}")
+            # Return fallback embedding in correct format
+            fallback = self.error_handler._get_fallback_embedding(mode)
+            return {mode: fallback}
     
     async def generate_dense_embedding(self, text: str) -> List[float]:
         """Generate dense embedding for text"""
@@ -357,8 +470,16 @@ class BGE_M3_Service:
         
         return result.get("multi_vector", [])
     
-    async def generate_embeddings(self, text: str) -> Dict[str, Any]:
-        """Generate all types of embeddings for text"""
+    async def generate_embeddings(
+        self,
+        text: str,
+        include_dense: bool = True,
+        include_sparse: bool = True,
+        include_multivector: bool = True,
+        cache_embeddings: bool = True,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generate all types of embeddings for text using BGE-M3"""
         text = self._validate_text(text)
         
         result = {
@@ -368,61 +489,140 @@ class BGE_M3_Service:
         }
         
         try:
-            # Generate dense embedding
-            try:
-                dense_embedding = await self.generate_dense_embedding(text)
-                result["embeddings"]["dense"] = dense_embedding
-            except Exception as e:
-                error_msg = f"Dense embedding generation failed: {str(e)}"
-                result["errors"].append(error_msg)
-                logger.error(error_msg)
+            # Generate all embeddings at once using the correct BGE-M3 method
+            output = self.model_client.encode(
+                [text],
+                return_dense=include_dense,
+                return_sparse=include_sparse,
+                return_colbert_vecs=include_multivector
+            )
             
-            # Generate sparse embedding
-            try:
-                sparse_embedding = await self.generate_sparse_embedding(text)
-                result["embeddings"]["sparse"] = sparse_embedding
-            except Exception as e:
-                error_msg = f"Sparse embedding generation failed: {str(e)}"
-                result["errors"].append(error_msg)
-                logger.error(error_msg)
+            # Extract the embeddings
+            if include_dense:
+                dense_embedding = output['dense_vecs'][0]
+                # Ensure correct dimension
+                if len(dense_embedding) != self.bge_m3_settings.dense_dimension:
+                    logger.warning(f"Dense embedding dimension mismatch: got {len(dense_embedding)}, expected {self.bge_m3_settings.dense_dimension}")
+                    # Pad or truncate to match expected dimension
+                    if len(dense_embedding) < self.bge_m3_settings.dense_dimension:
+                        dense_embedding = np.pad(dense_embedding, (0, self.bge_m3_settings.dense_dimension - len(dense_embedding)))
+                    else:
+                        dense_embedding = dense_embedding[:self.bge_m3_settings.dense_dimension]
+                result["embeddings"]["dense"] = dense_embedding.tolist()
+                logger.info(f"Dense embedding generated: {len(dense_embedding)} dimensions, sample: {dense_embedding[:5]}")
             
-            # Generate multivector embedding
-            try:
-                multivector_embedding = await self.generate_multivector_embedding(text)
-                result["embeddings"]["multi_vector"] = multivector_embedding
-            except Exception as e:
-                error_msg = f"Multivector embedding generation failed: {str(e)}"
-                result["errors"].append(error_msg)
-                logger.error(error_msg)
+            if include_sparse:
+                sparse_embedding = output['lexical_weights'][0]
+                # Convert to dictionary format if it's not already
+                if isinstance(sparse_embedding, dict):
+                    result["embeddings"]["sparse"] = sparse_embedding
+                else:
+                    # Convert list to dict
+                    sparse_dict = {}
+                    for i, value in enumerate(sparse_embedding):
+                        if abs(value) > 0.01:  # Only include non-zero values
+                            sparse_dict[str(i)] = float(value)
+                    result["embeddings"]["sparse"] = sparse_dict
+                logger.info(f"Sparse embedding generated: {len(sparse_embedding)} items")
+            
+            if include_multivector:
+                colbert_embedding = output['colbert_vecs'][0]
+                # Ensure we have the right format (list of lists)
+                if isinstance(colbert_embedding, np.ndarray):
+                    colbert_embedding = colbert_embedding.tolist()
                 
+                # Ensure we have the right number of ColBERT vectors
+                if len(colbert_embedding) < self.bge_m3_settings.multi_vector_count:
+                    # Pad with zero vectors
+                    for _ in range(self.bge_m3_settings.multi_vector_count - len(colbert_embedding)):
+                        zero_vector = [0.0] * self.bge_m3_settings.multi_vector_dimension
+                        colbert_embedding.append(zero_vector)
+                elif len(colbert_embedding) > self.bge_m3_settings.multi_vector_count:
+                    # Truncate
+                    colbert_embedding = colbert_embedding[:self.bge_m3_settings.multi_vector_count]
+                
+                result["embeddings"]["multi_vector"] = colbert_embedding
+                logger.info(f"Multi-vector embedding generated: {len(colbert_embedding)} vectors")
+            
         except Exception as e:
             error_msg = f"Embedding generation failed: {str(e)}"
             result["errors"].append(error_msg)
             logger.error(error_msg)
+            
+            # Set fallback embeddings
+            if include_dense:
+                result["embeddings"]["dense"] = [0.0] * self.bge_m3_settings.dense_dimension
+            if include_sparse:
+                result["embeddings"]["sparse"] = {}
+            if include_multivector:
+                result["embeddings"]["multi_vector"] = []
         
         return result
     
-    async def batch_generate_embeddings(self, texts: List[str]) -> List[Dict[str, Any]]:
+    async def batch_generate_embeddings(
+        self,
+        texts: List[str],
+        include_dense: bool = True,
+        include_sparse: bool = True,
+        include_multivector: bool = True,
+        cache_embeddings: bool = True,
+        session_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Generate embeddings for multiple texts"""
         results = []
         
         for text in texts:
             try:
-                result = await self.generate_embeddings(text)
+                result = await self.generate_embeddings(
+                    text,
+                    include_dense=include_dense,
+                    include_sparse=include_sparse,
+                    include_multivector=include_multivector,
+                    cache_embeddings=cache_embeddings,
+                    session_id=session_id
+                )
                 results.append(result)
             except Exception as e:
                 logger.error(f"Error generating embeddings for text '{text[:50]}...': {e}")
+                # Ensure we always return a valid structure
                 results.append({
-                    "embeddings": {},
+                    "embeddings": {
+                        "dense": [0.0] * self.bge_m3_settings.dense_dimension if include_dense else [],
+                        "sparse": {} if include_sparse else {},
+                        "multi_vector": [] if include_multivector else []
+                    },
                     "errors": [str(e)],
                     "text": text
                 })
         
         return results
     
+    def is_available(self) -> bool:
+        """Check if service is available"""
+        # Check if model is available
+        if self.model_client is None:
+            return False
+        
+        # Try a simple test to ensure the model works
+        try:
+            test_text = "test"
+            test_embedding = self.model_client.encode([test_text], return_dense=True, return_sparse=False, return_colbert_vecs=False)
+            return len(test_embedding['dense_vecs'][0]) > 0
+        except Exception:
+            return False
+    
     def is_model_ready(self) -> bool:
         """Check if model is ready"""
-        return self.model_client is not None
+        if self.model_client is None:
+            return False
+        
+        # Try a simple test to ensure the model works
+        try:
+            test_text = "test"
+            test_embedding = self.model_client.encode(test_text, convert_to_tensor=False)
+            return len(test_embedding) > 0
+        except Exception:
+            return False
     
     def get_embedding_modes(self) -> List[str]:
         """Get available embedding modes"""

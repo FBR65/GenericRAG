@@ -46,10 +46,11 @@ ImageStorageDep = Annotated[LocalImageStorage, Depends(get_image_storage)]
 # Instructor client
 async def get_instructor_client(settings: SettingsDep) -> AsyncInstructor:
     """Get Instructor client"""
-    return instructor.AsyncInstructor(
-        client_type="httpx",
+    return instructor.from_provider(
+        model=f"openai/{settings.llm.student_model}",
         base_url=settings.llm.gemma_base_url,
         api_key=settings.llm.gemma_api_key,
+        async_client=True,
     )
 
 
