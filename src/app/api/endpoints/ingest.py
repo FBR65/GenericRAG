@@ -36,6 +36,7 @@ from src.app.utils.qdrant_utils import (
     upsert_with_retry,
     create_hybrid_point,
     upsert_hybrid_chunks_with_retry,
+    create_hybrid_collection_if_not_exists,
     create_image_collection_if_not_exists,
     upsert_image_embeddings_with_retry,
 )
@@ -326,12 +327,14 @@ async def ingest_bge_m3(
 
         # Create hybrid collection if not exists
         logger.info(f"Creating hybrid collection '{settings.qdrant.collection_name}' with dense size {settings.qdrant.dense_dimension} and sparse size {settings.qdrant.sparse_max_features}")
-        await create_collection_if_not_exists(
+        
+        # Use the hybrid collection creation function that supports BGE-M3 sparse vectors
+        # Note: force_recreate_if_missing_dense parameter is not available in create_hybrid_collection_if_not_exists
+        await create_hybrid_collection_if_not_exists(
             qdrant_client=qdrant_client,
             collection_name=settings.qdrant.collection_name,
             dense_vector_size=settings.qdrant.dense_dimension,
             sparse_vector_size=settings.qdrant.sparse_max_features,
-            force_recreate_if_missing_dense=True,  # Fix missing dense vector configuration
         )
 
         # Create image collection if not exists

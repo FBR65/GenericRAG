@@ -488,8 +488,28 @@ class BGE_M3_Service:
             "text": text
         }
         
+        # Debug: Log input parameters
+        logger.debug(f"DEBUG: generate_embeddings called with text: '{text[:50]}...'")
+        logger.debug(f"DEBUG: include_dense: {include_dense}, include_sparse: {include_sparse}, include_multivector: {include_multivector}")
+        
         try:
+            # Check if model is available
+            if not self.model_client:
+                error_msg = "BGE-M3 model is not available"
+                logger.error(error_msg)
+                result["errors"].append(error_msg)
+                # Set fallback embeddings
+                if include_dense:
+                    result["embeddings"]["dense"] = [0.0] * self.bge_m3_settings.dense_dimension
+                if include_sparse:
+                    result["embeddings"]["sparse"] = {}
+                if include_multivector:
+                    result["embeddings"]["multi_vector"] = []
+                return result
+            
             # Generate all embeddings at once using the correct BGE-M3 method
+            logger.debug(f"DEBUG: Calling model_client.encode with return_dense={include_dense}, return_sparse={include_sparse}, return_colbert_vecs={include_multivector}")
+            
             output = self.model_client.encode(
                 [text],
                 return_dense=include_dense,
@@ -497,57 +517,110 @@ class BGE_M3_Service:
                 return_colbert_vecs=include_multivector
             )
             
+            logger.debug(f"DEBUG: Model encode completed successfully")
+            logger.debug(f"DEBUG: Output keys: {list(output.keys())}")
+            
             # Extract the embeddings
             if include_dense:
-                dense_embedding = output['dense_vecs'][0]
-                # Ensure correct dimension
-                if len(dense_embedding) != self.bge_m3_settings.dense_dimension:
-                    logger.warning(f"Dense embedding dimension mismatch: got {len(dense_embedding)}, expected {self.bge_m3_settings.dense_dimension}")
-                    # Pad or truncate to match expected dimension
-                    if len(dense_embedding) < self.bge_m3_settings.dense_dimension:
-                        dense_embedding = np.pad(dense_embedding, (0, self.bge_m3_settings.dense_dimension - len(dense_embedding)))
-                    else:
-                        dense_embedding = dense_embedding[:self.bge_m3_settings.dense_dimension]
-                result["embeddings"]["dense"] = dense_embedding.tolist()
-                logger.info(f"Dense embedding generated: {len(dense_embedding)} dimensions, sample: {dense_embedding[:5]}")
+                if 'dense_vecs' not in output:
+                    error_msg = "Dense vectors not found in output"
+                    logger.error(error_msg)
+                    result["errors"].append(error_msg)
+                    result["embeddings"]["dense"] = [0.0] * self.bge_m3_settings.dense_dimension
+                else:
+                    dense_embedding = output['dense_vecs'][0]
+                    logger.debug(f"DEBUG: Raw dense embedding: type={type(dense_embedding)}, length={len(dense_embedding) if hasattr(dense_embedding, '__len__') else 'N/A'}")
+                    
+                    # Ensure correct dimension
+                    if len(dense_embedding) != self.bge_m3_settings.dense_dimension:
+                        logger.warning(f"Dense embedding dimension mismatch: got {len(dense_embedding)}, expected {self.bge_m3_settings.dense_dimension}")
+                        # Pad or truncate to match expected dimension
+                        if len(dense_embedding) < self.bge_m3_settings.dense_dimension:
+                            dense_embedding = np.pad(dense_embedding, (0, self.bge_m3_settings.dense_dimension - len(dense_embedding)))
+                        else:
+                            dense_embedding = dense_embedding[:self.bge_m3_settings.dense_dimension]
+                    
+                    result["embeddings"]["dense"] = dense_embedding.tolist()
+                    logger.info(f"Dense embedding generated: {len(dense_embedding)} dimensions, sample: {dense_embedding[:5]}")
             
             if include_sparse:
-                sparse_embedding = output['lexical_weights'][0]
-                # Convert to dictionary format if it's not already
-                if isinstance(sparse_embedding, dict):
-                    result["embeddings"]["sparse"] = sparse_embedding
+                if 'lexical_weights' not in output:
+                    error_msg = "Sparse vectors not found in output"
+                    logger.error(error_msg)
+                    result["errors"].append(error_msg)
+                    result["embeddings"]["sparse"] = {}
                 else:
-                    # Convert list to dict
-                    sparse_dict = {}
-                    for i, value in enumerate(sparse_embedding):
-                        if abs(value) > 0.01:  # Only include non-zero values
-                            sparse_dict[str(i)] = float(value)
-                    result["embeddings"]["sparse"] = sparse_dict
-                logger.info(f"Sparse embedding generated: {len(sparse_embedding)} items")
+                    sparse_embedding = output['lexical_weights'][0]
+                    logger.debug(f"DEBUG: Raw sparse embedding: type={type(sparse_embedding)}, length={len(sparse_embedding) if hasattr(sparse_embedding, '__len__') else 'N/A'}")
+                    
+                    # Convert to dictionary format if it's not already
+                    if isinstance(sparse_embedding, dict):
+                        result["embeddings"]["sparse"] = sparse_embedding
+                        logger.info(f"Sparse embedding generated: {len(sparse_embedding)} items (dict format)")
+                    else:
+                        # Convert list to dict - this is likely the issue
+                        sparse_dict = {}
+                        non_zero_count = 0
+                        for i, value in enumerate(sparse_embedding):
+                            if abs(value) > 0.001:  # Reduced threshold to include more values
+                                sparse_dict[str(i)] = float(value)
+                                non_zero_count += 1
+                        
+                        result["embeddings"]["sparse"] = sparse_dict
+                        logger.info(f"Sparse embedding generated: {len(sparse_dict)} non-zero items from {len(sparse_embedding)} total (threshold: 0.001)")
+                        
+                        # Debug: Log sparse vector details
+                        if len(sparse_dict) == 0:
+                            logger.warning(f"Sparse vector is empty! This might indicate an issue with the content or threshold")
+                            logger.debug(f"Sample values from sparse_embedding: {sparse_embedding[:10]}")
+                            logger.debug(f"Absolute values: {[abs(v) for v in sparse_embedding[:10]]}")
+                        elif len(sparse_dict) < 5:  # Log if we have very few entries
+                            logger.warning(f"Sparse vector has only {len(sparse_dict)} entries, which might indicate an issue")
+                            logger.debug(f"Sparse vector sample: {dict(list(sparse_dict.items())[:5])}")
             
             if include_multivector:
-                colbert_embedding = output['colbert_vecs'][0]
-                # Ensure we have the right format (list of lists)
-                if isinstance(colbert_embedding, np.ndarray):
-                    colbert_embedding = colbert_embedding.tolist()
-                
-                # Ensure we have the right number of ColBERT vectors
-                if len(colbert_embedding) < self.bge_m3_settings.multi_vector_count:
-                    # Pad with zero vectors
-                    for _ in range(self.bge_m3_settings.multi_vector_count - len(colbert_embedding)):
-                        zero_vector = [0.0] * self.bge_m3_settings.multi_vector_dimension
-                        colbert_embedding.append(zero_vector)
-                elif len(colbert_embedding) > self.bge_m3_settings.multi_vector_count:
-                    # Truncate
-                    colbert_embedding = colbert_embedding[:self.bge_m3_settings.multi_vector_count]
-                
-                result["embeddings"]["multi_vector"] = colbert_embedding
-                logger.info(f"Multi-vector embedding generated: {len(colbert_embedding)} vectors")
+                if 'colbert_vecs' not in output:
+                    error_msg = "ColBERT vectors not found in output"
+                    logger.error(error_msg)
+                    result["errors"].append(error_msg)
+                    result["embeddings"]["multi_vector"] = []
+                else:
+                    colbert_embedding = output['colbert_vecs'][0]
+                    logger.debug(f"DEBUG: Raw ColBERT embedding: type={type(colbert_embedding)}, length={len(colbert_embedding) if hasattr(colbert_embedding, '__len__') else 'N/A'}")
+                    
+                    # Ensure we have the right format (list of lists)
+                    if isinstance(colbert_embedding, np.ndarray):
+                        colbert_embedding = colbert_embedding.tolist()
+                    
+                    # Ensure we have the right number of ColBERT vectors
+                    if len(colbert_embedding) < self.bge_m3_settings.multi_vector_count:
+                        # Pad with zero vectors
+                        for _ in range(self.bge_m3_settings.multi_vector_count - len(colbert_embedding)):
+                            zero_vector = [0.0] * self.bge_m3_settings.multi_vector_dimension
+                            colbert_embedding.append(zero_vector)
+                    elif len(colbert_embedding) > self.bge_m3_settings.multi_vector_count:
+                        # Truncate
+                        colbert_embedding = colbert_embedding[:self.bge_m3_settings.multi_vector_count]
+                    
+                    result["embeddings"]["multi_vector"] = colbert_embedding
+                    logger.info(f"Multi-vector embedding generated: {len(colbert_embedding)} vectors")
+            
+            # Debug: Log final result
+            logger.debug(f"DEBUG: Final embeddings: {list(result['embeddings'].keys())}")
+            for key, value in result['embeddings'].items():
+                if key == 'dense':
+                    logger.debug(f"DEBUG: {key}: length={len(value)}, sample={value[:3]}")
+                elif key == 'sparse':
+                    logger.debug(f"DEBUG: {key}: length={len(value)}, sample={dict(list(value.items())[:3])}")
+                elif key == 'multi_vector':
+                    logger.debug(f"DEBUG: {key}: length={len(value)}, first_vector_length={len(value[0]) if value else 0}")
             
         except Exception as e:
             error_msg = f"Embedding generation failed: {str(e)}"
             result["errors"].append(error_msg)
             logger.error(error_msg)
+            logger.error(f"DEBUG: Error type: {type(e)}")
+            logger.error(f"DEBUG: Error details: {e}")
             
             # Set fallback embeddings
             if include_dense:

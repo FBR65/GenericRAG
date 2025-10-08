@@ -192,9 +192,47 @@ class SearchService:
                 if isinstance(first_key, int):
                     qdrant_sparse_vector = convert_bge_m3_sparse_to_qdrant_format(sparse_vector)
             
+            # Konvertiere sparse_vector zum korrekten Qdrant Format
+            if isinstance(sparse_vector, dict):
+                sparse_indices = []
+                sparse_values = []
+                for key, value in sparse_vector.items():
+                    if float(value) > 0:
+                        if isinstance(key, str):
+                            if key.isdigit():
+                                key = int(key)
+                            else:
+                                continue
+                        sparse_indices.append(key)
+                        sparse_values.append(float(value))
+                
+                qdrant_sparse = models.SparseVector(
+                    indices=sparse_indices,
+                    values=sparse_values
+                )
+            else:
+                qdrant_sparse = sparse_vector
+            
+            # Verwende Prefetch für hybride Suche mit mehreren Vektoren
+            prefetch = [
+                models.Prefetch(
+                    query=qdrant_sparse,
+                    using="sparse",
+                    limit=limit * 2
+                ),
+                models.Prefetch(
+                    query=query_embedding,
+                    using="dense",
+                    limit=limit * 2
+                )
+            ]
+            
+            # Verwende Dense Vektor für die Suche (da colbert nicht konfiguriert ist)
             response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                query_vector=query_embedding,
+                query=query_embedding,
+                using="dense",
+                prefetch=prefetch,
                 limit=limit,
                 query_filter=query_filter,
                 with_payload=True,
@@ -790,9 +828,45 @@ class SearchService:
             base_filter = create_payload_filter(session_id=session_id) if session_id else None
             
             # Führe BGE-M3 hybride Suche durch
+            # Konvertiere sparse_vector zum korrekten Qdrant Format
+            if isinstance(sparse_vector, dict):
+                sparse_indices = []
+                sparse_values = []
+                for key, value in sparse_vector.items():
+                    if float(value) > 0:
+                        if isinstance(key, str):
+                            if key.isdigit():
+                                key = int(key)
+                            else:
+                                continue
+                        sparse_indices.append(key)
+                        sparse_values.append(float(value))
+                
+                qdrant_sparse = models.SparseVector(
+                    indices=sparse_indices,
+                    values=sparse_values
+                )
+            else:
+                qdrant_sparse = sparse_vector
+            
+            prefetch = [
+                models.Prefetch(
+                    query=qdrant_sparse,
+                    using="sparse",
+                    limit=top_k * 2
+                ),
+                models.Prefetch(
+                    query=dense_vector,
+                    using="dense",
+                    limit=top_k * 2
+                )
+            ]
+            
             search_response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                query_vector=dense_vector,
+                query=dense_vector,
+                using="dense",
+                prefetch=prefetch,
                 limit=top_k,
                 query_filter=base_filter,
                 with_payload=True,
@@ -891,7 +965,8 @@ class SearchService:
             # Führe Multi-Vector Suche durch
             search_response = await self.qdrant_client.query_points(
                 collection_name=self.text_collection_name,
-                query_vector=multivector_query[0] if multivector_query else [],
+                query=multivector_query[0] if multivector_query else [],
+                using="colbert",
                 limit=top_k,
                 query_filter=base_filter,
                 with_payload=True,

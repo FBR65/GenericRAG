@@ -581,7 +581,7 @@ class GradioFrontend:
                         page_filter = gr.Number(
                             label="Filter by Page (optional)",
                             precision=0,
-                            minimum=1,
+                            minimum=0,
                         )
 
                 # Element type filter

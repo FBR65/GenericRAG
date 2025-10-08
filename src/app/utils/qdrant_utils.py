@@ -46,11 +46,30 @@ async def upsert_with_retry(
     try:
         collection_info = await qdrant_client.get_collection(collection_name)
         logger.info(f"Collection '{collection_name}' info: {collection_info.config.params.vectors}")
-        # Check if 'dense' vector exists
-        if hasattr(collection_info.config.params.vectors, 'dense'):
-            logger.info("Dense vector configuration exists")
+        
+        # Check if 'dense' vector exists - handle both dict and object style
+        if isinstance(collection_info.config.params.vectors, dict):
+            if 'dense' in collection_info.config.params.vectors:
+                logger.info("Dense vector configuration exists")
+            else:
+                logger.error("Dense vector configuration missing from collection")
         else:
-            logger.error("Dense vector configuration missing from collection")
+            # Handle object style access
+            if hasattr(collection_info.config.params.vectors, 'dense'):
+                logger.info("Dense vector configuration exists")
+            else:
+                logger.error("Dense vector configuration missing from collection")
+                
+        # Log sparse vector info
+        if isinstance(collection_info.config.params.vectors, dict):
+            if 'sparse' in collection_info.config.params.vectors:
+                sparse_config = collection_info.config.params.vectors['sparse']
+                logger.info(f"Sparse vector configuration: size={getattr(sparse_config, 'size', 'unknown')}")
+        else:
+            if hasattr(collection_info.config.params.vectors, 'sparse'):
+                sparse_config = collection_info.config.params.vectors.sparse
+                logger.info(f"Sparse vector configuration: size={getattr(sparse_config, 'size', 'unknown')}")
+                
     except Exception as e:
         logger.error(f"Error getting collection info for '{collection_name}': {e}")
 
@@ -178,11 +197,18 @@ async def create_collection_if_not_exists(
 
         # Configure sparse vectors - Qdrant expects a different structure for sparse vectors
         # We need to use the correct structure for hybrid search
-        sparse_config = models.VectorParams(
-            size=sparse_vector_size,
-            distance=models.Distance.DOT,  # Use DOT product for sparse vectors
+        # For BGE-M3, we need to use SparseVectorParams instead of VectorParams
+        sparse_index_params = models.SparseIndexParams(
             on_disk=False,
         )
+        
+        sparse_config = models.SparseVectorParams(
+            index=sparse_index_params,
+        )
+        
+        # Log the sparse vector configuration
+        logger.info(f"Configuring sparse vectors with BGE-M3 compatible format")
+        logger.info(f"Sparse vector config: {sparse_config}")
 
         # Create vectors config with the correct structure
         vectors_config = {
@@ -239,7 +265,7 @@ async def create_hybrid_collection_if_not_exists(
     sparse_index_params: Optional[models.SparseIndexParams] = None,
 ) -> None:
     """
-    Create a collection optimized for hybrid search (dense + sparse) if it doesn't exist
+    Create a collection optimized for hybrid search (dense + sparse + colbert) if it doesn't exist
     Enhanced with BGE-M3 support including multi-vector capabilities
 
     Args:
@@ -278,7 +304,7 @@ async def create_hybrid_collection_if_not_exists(
             distance=distance,
         )
 
-        # Configure sparse vectors with BGE-M3 optimization
+        # Configure sparse vectors with BGE-M3 optimization (like in sample.ipynb)
         if sparse_index_params is None:
             sparse_index_params = models.SparseIndexParams(
                 on_disk=False,
@@ -291,7 +317,6 @@ async def create_hybrid_collection_if_not_exists(
         # Configure multi-vector vectors if enabled
         vectors_config = {
             "dense": dense_config,
-            "sparse": sparse_config,
         }
         
         if enable_multivector:
@@ -300,19 +325,24 @@ async def create_hybrid_collection_if_not_exists(
                 distance=distance,
                 multivector_config=models.MultiVectorConfig(
                     comparator=models.MultiVectorComparator.MAX_SIM,
-                    max_sample_size=multivector_count,
                 ),
             )
-            vectors_config["multivector"] = multivector_config
-            logger.info(f"Enabled multi-vector with {multivector_count} vectors of {multivector_dimension} dimensions each")
+            vectors_config["colbert"] = multivector_config  # Use "colbert" instead of "multivector"
+            logger.info(f"Enabled ColBERT with {multivector_count} vectors of {multivector_dimension} dimensions each")
 
         logger.info(f"Creating hybrid collection with vectors config: {vectors_config}")
         logger.info(f"Dense config: {dense_config}")
         logger.info(f"Sparse config: {sparse_config}")
 
+        # Use separate sparse_vectors_config parameter (like in sample.ipynb)
+        sparse_vectors_config = {
+            "sparse": sparse_config
+        }
+
         await qdrant_client.create_collection(
             collection_name=collection_name,
             vectors_config=vectors_config,
+            sparse_vectors_config=sparse_vectors_config,
         )
 
         # Verify collection was created correctly
@@ -525,19 +555,41 @@ def create_hybrid_point(
         logger.debug(f"DEBUG: Added dense vector with {len(dense_vector)} dimensions")
     
     if sparse_vector:
-        # Convert sparse vector to Qdrant format if needed
-        sparse_vector_qdrant = []
-        for index, value in sparse_vector.items():
+        # Convert sparse vector to Qdrant format (like in sample.ipynb)
+        sparse_indices = []
+        sparse_values = []
+        
+        for key, value in sparse_vector.items():
             try:
-                sparse_vector_qdrant.append([int(index), float(value)])
+                # Only process positive values
+                if float(value) > 0:
+                    # Handle string keys
+                    if isinstance(key, str):
+                        if key.isdigit():
+                            key = int(key)
+                        else:
+                            continue
+                    
+                    sparse_indices.append(key)
+                    sparse_values.append(float(value))
             except (ValueError, TypeError) as e:
-                logger.warning(f"DEBUG: Invalid sparse vector entry {index}: {value}, error: {e}")
+                logger.warning(f"DEBUG: Invalid sparse vector entry {key}: {value}, error: {e}")
                 continue
         
-        # Sort by index for consistency
-        sparse_vector_qdrant.sort(key=lambda x: x[0])
-        vector["sparse"] = sparse_vector_qdrant
-        logger.debug(f"DEBUG: Added sparse vector with {len(sparse_vector_qdrant)} entries")
+        # Create SparseVector object (like in sample.ipynb)
+        if sparse_indices and sparse_values:
+            qdrant_sparse = models.SparseVector(
+                indices=sparse_indices,
+                values=sparse_values
+            )
+            vector["sparse"] = qdrant_sparse
+            logger.debug(f"DEBUG: Added sparse vector with {len(sparse_indices)} entries")
+            
+            # Validate sparse vector dimensions
+            if len(sparse_indices) < 10:
+                logger.warning(f"DEBUG: Sparse vector has only {len(sparse_indices)} entries, which might be too few")
+        else:
+            logger.warning("DEBUG: No valid sparse vector entries found")
     
     if multivector_vector:
         vector["multivector"] = multivector_vector

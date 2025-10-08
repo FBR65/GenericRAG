@@ -58,6 +58,11 @@ async def query_bge_m3(
         # Initialize search service
         search_service = SearchService(settings, qdrant_client=qdrant_client)
         
+        # Initialize BGE-M3 service if not already done
+        if not search_service.bge_m3_service:
+            logger.info("Initializing BGE-M3 service in SearchService...")
+            search_service._initialize_bge_m3_service()
+        
         if not search_service.bge_m3_service:
             raise HTTPException(
                 status_code=503,
@@ -150,16 +155,16 @@ async def query_bge_m3(
         bge_m3_results = BGE_M3_SearchResult(
             items=[
                 BGE_M3_SearchResultItem(
-                    id=result.id,
-                    score=result.score,
-                    document=result.document,
-                    page=result.page,
-                    image=result.image,
-                    metadata=result.metadata,
-                    search_type=result.metadata.get("search_type", "bge_m3"),
+                    id=result.items[0].id if result.items else 0,
+                    score=result.items[0].score if result.items else 0.0,
+                    document=result.items[0].document if result.items else "",
+                    page=result.items[0].page if result.items else 0,
+                    image=result.items[0].image if result.items else None,
+                    metadata=result.items[0].metadata if result.items else {},
+                    search_type=result.items[0].search_type if result.items else "bge_m3",
                     vector_types=bge_m3_embeddings.get("vector_types", []),
-                    confidence=result.metadata.get("confidence", "low"),
-                    bge_m3_metadata=result.metadata.get("bge_m3_metadata", {})
+                    confidence=result.items[0].metadata.get("confidence", "low"),
+                    bge_m3_metadata=result.items[0].metadata.get("bge_m3_metadata", {})
                 ) for result in search_results
             ],
             total=len(search_results),

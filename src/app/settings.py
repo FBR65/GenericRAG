@@ -8,13 +8,13 @@ from pydantic_settings import BaseSettings
 class QdrantSettings(BaseSettings):
     collection_name: str = "generic_rag_collection"
     image_collection_name: str = "generic_rag_images"
-    qdrant_url: str = "http://localhost:6333"
+    qdrant_url: str = "http://10.84.0.7:6333"
     qdrant_api_key: str = ""
 
     # Dense embedding configuration
     dense_model: str = "Alibaba-NLP/gte-Qwen2-7B-instruct"
     dense_dimension: int = 1024
-    dense_base_url: str = "http://localhost:8100"
+    dense_base_url: str = "http://10.84.0.10:8100"
     dense_api_key: str = ""
 
     # Sparse embedding configuration
@@ -38,16 +38,16 @@ class QdrantSettings(BaseSettings):
 class LLMSettings(BaseSettings):
     # Student model configuration
     student_model: str = "google/gemma-3-27b-it"
-    student_base_url: str = "http://localhost:8114/v1"
+    student_base_url: str = "http://10.78.0.5:8114/v1"
     student_api_key: str = ""
 
     # Teacher model configuration
     teacher_model: str = "google/gemma-3-27b-it"
-    teacher_base_url: str = "http://localhost:8114/v1"
+    teacher_base_url: str = "http://10.78.0.5:8114/v1"
     teacher_api_key: str = ""
 
     # Legacy compatibility
-    gemma_base_url: str = "http://localhost:8114/v1"
+    gemma_base_url: str = "http://10.78.0.5:8114/v1"
     gemma_api_key: str = "your_gemma_api_key_here"
 
     model_config = {"env_prefix": "LLM_"}
@@ -104,7 +104,7 @@ class BGE_M3_Settings(BaseSettings):
     
     # Cache Konfiguration
     cache_enabled: bool = True
-    cache_redis_url: str = "redis://localhost:6379"
+    cache_redis_url: str = "redis://10.84.0.4:6379"
     cache_ttl: int = 3600  # 1 Stunde
     cache_max_size: int = 10000
     
