@@ -570,7 +570,7 @@ class BGE_M3_QueryResponse(BaseModel):
     vlm_info: Optional[VLMResponse] = Field(
         None, description="VLM generation information"
     )
-    response_type: str = Field("vlm", description="Type of response generation")
+    response_type: str = Field("dspy_explanation", description="Type of response generation")
     vlm_used: bool = Field(False, description="Whether VLM was used")
     image_context_included: bool = Field(
         False, description="Whether image context was included"

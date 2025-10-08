@@ -273,57 +273,20 @@ class GradioFrontend:
                         response_text += f"\n   • Sparse Similarity: {sparse_similarity:.3f}"
                         response_text += f"\n   • Multivector Similarity: {multivector_similarity:.3f}"
 
-                # Add results summary
-                summary = f"\n\n📊 **Search Summary**"
-                summary += f"\n   • Found {total_results} relevant documents"
-                summary += f"\n   • Search Mode: {search_mode}"
-                summary += f"\n   • Response Type: {response_type}"
-
-                # Add top 3 results with enhanced BGE-M3 information
+                # Add top 3 results in simple format (without additional metadata)
                 if result.get("results", {}).get("items"):
-                    summary += "\n\n🔍 **Top Results:**"
-
-                    text_count = 0
-                    image_count = 0
-
+                    top_results = "\n\n**Top Results:**\n"
+                    
                     for i, result_item in enumerate(result["results"]["items"][:3], 1):
                         doc_name = result_item.get("document", "Unknown")
                         page = result_item.get("page", 0)
                         score = result_item.get("score", 0)
-                        search_type = result_item.get("search_type", "text")
-                        element_type = result_item.get("element_type", "text")
-                        vector_types = result_item.get("vector_types", [])
-                        bge_m3_scores = result_item.get("bge_m3_scores", {})
                         
-                        if search_type == "text":
-                            text_count += 1
-                            emoji = "📄"
-                            if element_type == "table":
-                                emoji = "📊"
-                            elif element_type == "chart":
-                                emoji = "📈"
-                            
-                            summary += f"\n{i}. {emoji} **{doc_name}** (Page {page}, Score: {score:.3f})"
-                            
-                            # Add vector type information
-                            if vector_types:
-                                summary += f"\n   🔍 Vector Types: {', '.join(vector_types)}"
-                            
-                            # Add BGE-M3 specific scores
-                            if bge_m3_scores:
-                                dense_score = bge_m3_scores.get("dense_score", 0)
-                                sparse_score = bge_m3_scores.get("sparse_score", 0)
-                                multivector_score = bge_m3_scores.get("multivector_score", 0)
-                                summary += f"\n   🎯 BGE-M3 Scores: Dense={dense_score:.3f}, Sparse={sparse_score:.3f}, Multi={multivector_score:.3f}"
-                        else:
-                            image_count += 1
-                            summary += f"\n{i}. 🖼️ **{doc_name}** (Page {page}, Score: {score:.3f})"
-
-                    # Add result type breakdown
-                    if text_count > 0 or image_count > 0:
-                        summary += f"\n\n📊 **Result Breakdown:** {text_count} text, {image_count} image"
-
-                return response_text + summary
+                        top_results += f"{i}. **{doc_name}** (Page {page}, Score: {score:.3f})\n"
+                    
+                    return response_text + top_results
+                
+                return response_text
             else:
                 error_text = response.text
                 # BGE-M3 specific error messages
